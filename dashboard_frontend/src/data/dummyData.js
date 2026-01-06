@@ -15,6 +15,10 @@ export const Statuses = Object.freeze({
   COMPLETED: "completed",
   ON_HOLD: "on_hold",
   POSTPONED: "postponed",
+
+  // Exceptions lifecycle additions
+  REJECTED: "rejected",
+  REDO: "redo",
 });
 
 export const statusMeta = {
@@ -23,6 +27,9 @@ export const statusMeta = {
   [Statuses.COMPLETED]: { label: "Completed", tone: "success" },
   [Statuses.ON_HOLD]: { label: "On Hold", tone: "error" },
   [Statuses.POSTPONED]: { label: "Postponed", tone: "warn" },
+
+  [Statuses.REJECTED]: { label: "Rejected", tone: "error" },
+  [Statuses.REDO]: { label: "Redo Requested", tone: "warn" },
 };
 
 export const regions = [
@@ -80,6 +87,11 @@ export const routes = [
     id: "route_n_1",
     regionId: "r_north",
     name: "North Loop A",
+    planned_stops: 24,
+    completed_stops: 20,
+    missed_stops: 2,
+    on_hold_stops: 1,
+    postponed_stops: 1,
     polyline: [
       { lat: 40.7512, lng: -73.9857 },
       { lat: 40.7428, lng: -73.9921 },
@@ -92,6 +104,11 @@ export const routes = [
     id: "route_n_2",
     regionId: "r_north",
     name: "North Loop B",
+    planned_stops: 18,
+    completed_stops: 11,
+    missed_stops: 3,
+    on_hold_stops: 2,
+    postponed_stops: 2,
     polyline: [
       { lat: 40.7594, lng: -73.9845 },
       { lat: 40.7489, lng: -73.968 },
@@ -103,6 +120,11 @@ export const routes = [
     id: "route_s_1",
     regionId: "r_south",
     name: "South Corridor A",
+    planned_stops: 22,
+    completed_stops: 19,
+    missed_stops: 1,
+    on_hold_stops: 1,
+    postponed_stops: 1,
     polyline: [
       { lat: 34.0522, lng: -118.2437 },
       { lat: 34.0407, lng: -118.2468 },
@@ -114,6 +136,11 @@ export const routes = [
     id: "route_s_2",
     regionId: "r_south",
     name: "South Corridor B",
+    planned_stops: 20,
+    completed_stops: 10,
+    missed_stops: 5,
+    on_hold_stops: 3,
+    postponed_stops: 2,
     polyline: [
       { lat: 34.0739, lng: -118.2395 },
       { lat: 34.0622, lng: -118.308 },
@@ -153,6 +180,9 @@ export const tasks = [
     routeId: "route_n_1",
     dueDate: "2026-01-10",
     status: Statuses.IN_PROGRESS,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_n_1002",
@@ -162,6 +192,9 @@ export const tasks = [
     routeId: "route_n_1",
     dueDate: "2026-01-08",
     status: Statuses.ASSIGNED,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_n_1003",
@@ -171,6 +204,9 @@ export const tasks = [
     routeId: "route_n_2",
     dueDate: "2026-01-11",
     status: Statuses.ON_HOLD,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_n_1004",
@@ -180,6 +216,9 @@ export const tasks = [
     routeId: "route_n_2",
     dueDate: "2026-01-09",
     status: Statuses.COMPLETED,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_n_1005",
@@ -189,6 +228,9 @@ export const tasks = [
     routeId: "route_n_1",
     dueDate: "2026-01-12",
     status: Statuses.IN_PROGRESS,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_n_1006",
@@ -198,6 +240,9 @@ export const tasks = [
     routeId: "route_n_2",
     dueDate: "2026-01-07",
     status: Statuses.POSTPONED,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_n_1007",
@@ -207,6 +252,9 @@ export const tasks = [
     routeId: "route_n_1",
     dueDate: "2026-01-13",
     status: Statuses.ASSIGNED,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_n_1008",
@@ -215,7 +263,10 @@ export const tasks = [
     engineerId: "u_eng_8",
     routeId: "route_n_2",
     dueDate: "2026-01-06",
-    status: Statuses.IN_PROGRESS,
+    status: Statuses.REDO,
+    rejection_reason: "",
+    redo_reason: "Photo evidence missing; please re-submit.",
+    redo_count: 1,
   },
 
   // South tasks (engineer 9..16)
@@ -227,6 +278,9 @@ export const tasks = [
     routeId: "route_s_1",
     dueDate: "2026-01-08",
     status: Statuses.IN_PROGRESS,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_s_2002",
@@ -236,6 +290,9 @@ export const tasks = [
     routeId: "route_s_1",
     dueDate: "2026-01-10",
     status: Statuses.ASSIGNED,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_s_2003",
@@ -245,6 +302,9 @@ export const tasks = [
     routeId: "route_s_2",
     dueDate: "2026-01-11",
     status: Statuses.IN_PROGRESS,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_s_2004",
@@ -254,6 +314,9 @@ export const tasks = [
     routeId: "route_s_2",
     dueDate: "2026-01-07",
     status: Statuses.ON_HOLD,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_s_2005",
@@ -263,6 +326,9 @@ export const tasks = [
     routeId: "route_s_1",
     dueDate: "2026-01-09",
     status: Statuses.COMPLETED,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_s_2006",
@@ -272,6 +338,9 @@ export const tasks = [
     routeId: "route_s_1",
     dueDate: "2026-01-12",
     status: Statuses.POSTPONED,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_s_2007",
@@ -280,7 +349,10 @@ export const tasks = [
     engineerId: "u_eng_15",
     routeId: "route_s_2",
     dueDate: "2026-01-13",
-    status: Statuses.ASSIGNED,
+    status: Statuses.REJECTED,
+    rejection_reason: "Work order missing required before/after photos.",
+    redo_reason: "",
+    redo_count: 0,
   },
   {
     id: "t_s_2008",
@@ -290,6 +362,9 @@ export const tasks = [
     routeId: "route_s_2",
     dueDate: "2026-01-06",
     status: Statuses.IN_PROGRESS,
+    rejection_reason: "",
+    redo_reason: "",
+    redo_count: 0,
   },
 ];
 
@@ -329,5 +404,25 @@ export const initialStatusHistory = [
     reason: "Parts unavailable; awaiting delivery.",
     timestamp: "2026-01-03T16:30:00Z",
     actorUserId: "u_eng_14",
+  },
+
+  // Seed examples for new lifecycle transitions:
+  {
+    id: "h_5",
+    entityType: "task",
+    entityId: "t_s_2007",
+    toStatus: Statuses.REJECTED,
+    reason: "Work order missing required before/after photos.",
+    timestamp: "2026-01-04T10:20:00Z",
+    actorUserId: "u_rm_s",
+  },
+  {
+    id: "h_6",
+    entityType: "task",
+    entityId: "t_n_1008",
+    toStatus: Statuses.REDO,
+    reason: "Photo evidence missing; please re-submit.",
+    timestamp: "2026-01-05T08:05:00Z",
+    actorUserId: "u_rm_n",
   },
 ];

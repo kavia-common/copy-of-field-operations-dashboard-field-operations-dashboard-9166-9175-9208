@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { computeMetrics } from "../state/domainStore";
 import { Statuses } from "../data/dummyData";
 import MapPanel from "../components/MapPanel";
+import RouteCompletionCard from "../components/RouteCompletionCard";
 
 function pct(n) {
   return `${n}%`;
@@ -30,7 +31,7 @@ export default function DashboardPage({ scopedState }) {
           </div>
 
           <div className="kpi">
-            <div className="kpiLabel">Completion rate</div>
+            <div className="kpiLabel">Task completion</div>
             <div className="kpiValue">{pct(metrics.completionRate)}</div>
             <div className="kpiSub">Completed ÷ total</div>
           </div>
@@ -42,12 +43,16 @@ export default function DashboardPage({ scopedState }) {
           </div>
 
           <div className="kpi">
-            <div className="kpiLabel">In progress</div>
-            <div className="kpiValue">{metrics.byStatus[Statuses.IN_PROGRESS] || 0}</div>
-            <div className="kpiSub">Tasks currently in progress</div>
+            <div className="kpiLabel">Exceptions</div>
+            <div className="kpiValue">{metrics.exceptions.total}</div>
+            <div className="kpiSub">
+              Rejected {metrics.exceptions.rejected} · Redo {metrics.exceptions.redo}
+            </div>
           </div>
         </div>
       </div>
+
+      <RouteCompletionCard scopedState={scopedState} />
 
       <div className="grid2">
         <MapPanel scopedState={scopedState} selectedRouteId={selectedRouteId} onSelectRouteId={setSelectedRouteId} />
@@ -94,7 +99,30 @@ export default function DashboardPage({ scopedState }) {
           <hr className="hr" />
 
           <div className="notice">
-            <strong>Status definitions:</strong> Completed, On Hold, and Postponed updates are tracked in status history and visible in task details.
+            <strong>Status definitions:</strong> Updates are tracked in status history (including exceptions). Use the Tasks page to view history and resolve rejected/redo tasks.
+          </div>
+
+          <hr className="hr" />
+
+          <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+            <div className="kpi">
+              <div className="kpiLabel">Routes (scope)</div>
+              <div className="kpiValue">{metrics.totalRoutes}</div>
+              <div className="kpiSub">Routes visible</div>
+            </div>
+            <div className="kpi">
+              <div className="kpiLabel">Route completion</div>
+              <div className="kpiValue">{pct(metrics.routesOverall.completionPercent)}</div>
+              <div className="kpiSub">
+                {metrics.routesOverall.completed}/{metrics.routesOverall.planned} completed stops
+              </div>
+            </div>
+          </div>
+
+          <hr className="hr" />
+
+          <div className="mini">
+            Map polylines are color-coded by route completion. Selected route: <strong>{selectedRouteId || "None"}</strong>
           </div>
         </div>
       </div>

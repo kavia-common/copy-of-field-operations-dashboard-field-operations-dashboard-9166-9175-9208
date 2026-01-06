@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { Roles } from "../data/dummyData";
 
 function navItemClass({ isActive }) {
@@ -8,6 +8,9 @@ function navItemClass({ isActive }) {
 
 export default function AppShell({ currentUser, onLogout, children }) {
   const canSeeEngineers = currentUser?.role !== Roles.FIELD_ENGINEER;
+  const canSeeAllocation = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
+
+  const navigate = useNavigate();
 
   return (
     <div className="appShell">
@@ -39,6 +42,18 @@ export default function AppShell({ currentUser, onLogout, children }) {
           </NavLink>
         )}
 
+        {canSeeAllocation && (
+          <NavLink className={navItemClass} to="/allocation">
+            <span className="navIcon">A</span>
+            Allocation
+          </NavLink>
+        )}
+
+        <NavLink className={navItemClass} to="/dpr">
+          <span className="navIcon">R</span>
+          DPR
+        </NavLink>
+
         <div className="sidebarFooter">
           <div style={{ fontWeight: 900, color: "var(--ocean-text)" }}>{currentUser?.name}</div>
           <div style={{ marginTop: 4 }}>
@@ -51,6 +66,9 @@ export default function AppShell({ currentUser, onLogout, children }) {
           )}
 
           <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button className="btn btnGhost" onClick={() => navigate("/dpr")}>
+              Open DPR
+            </button>
             <button className="btn btnDanger" onClick={onLogout}>
               Logout
             </button>
