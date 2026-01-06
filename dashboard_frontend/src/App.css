@@ -564,6 +564,17 @@
   border-color: rgba(17, 24, 39, 0.65);
 }
 
+/* 
+  Global z-index tokens.
+  We keep these centralized to avoid future z-index "arms races" between overlays, modals, and Leaflet.
+*/
+:root {
+  --z-map: 0;
+  --z-map-overlay: 40; /* obscures map while modal open */
+  --z-modal: 100; /* app modal must always be above any map overlay/panes */
+  --z-toast: 110;
+}
+
 .mapBox {
   /* Fixed height for dashboard layout; min-height prevents collapse in flex/grid edge cases. */
   height: 420px;
@@ -574,6 +585,9 @@
   overflow: hidden;
   background: linear-gradient(135deg, rgba(30, 58, 138, 0.06), rgba(245, 158, 11, 0.05));
   position: relative;
+
+  /* Establish a local stacking context for map internals without affecting app-level modals. */
+  z-index: var(--z-map);
 }
 
 /* 
@@ -583,7 +597,7 @@
 .mapObscureOverlay {
   position: absolute;
   inset: 0;
-  z-index: 45; /* below modalOverlay (50) and toasts (60), above Leaflet */
+  z-index: var(--z-map-overlay); /* map < overlay < modal */
   display: grid;
   place-items: center;
   background: linear-gradient(135deg, rgba(30, 58, 138, 0.16), rgba(245, 158, 11, 0.10));
@@ -712,7 +726,7 @@
   background: rgba(17, 24, 39, 0.55);
   display: grid;
   place-items: center;
-  z-index: 50;
+  z-index: var(--z-modal);
   padding: 18px;
 }
 
@@ -830,7 +844,7 @@
   position: fixed;
   right: 16px;
   top: 76px; /* below top bar */
-  z-index: 60;
+  z-index: var(--z-toast);
   width: min(420px, calc(100vw - 24px));
   display: grid;
   gap: 10px;
