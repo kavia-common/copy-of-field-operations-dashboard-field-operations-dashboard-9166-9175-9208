@@ -261,21 +261,41 @@
   height: 260px; /* fixed uniform height across Route Completion / Tasks / Engineer Allocation */
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
+/*
+  Reserve a dedicated footer/action area so the "Show details" button never overlaps
+  the KPI content, even with long helper text and at responsive breakpoints.
+*/
 .kpiCardBody {
   flex: 1;
   min-height: 0;
+  overflow: hidden; /* prevent content from bleeding into the footer area */
 }
 
 .kpiCardFooter {
   margin-top: auto;
+  flex: 0 0 auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--ocean-border);
+  position: relative;
+  z-index: 1; /* ensure the footer/button stays above any internal backgrounds */
 }
 
 .detailsLink {
   padding: 8px 10px;
   font-size: 12px;
   white-space: nowrap;
+  line-height: 1; /* tighter hitbox alignment in compact footer */
+}
+
+/* Ensure the action row always aligns cleanly and doesn't wrap into content */
+.kpiCardFooter .splitRow {
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: nowrap;
 }
 
 .cardHeader {
