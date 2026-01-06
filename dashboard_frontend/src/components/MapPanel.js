@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from "react";
-import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { createPortal } from "react-dom";
 import { computeRouteCompletionCriteriaForRoute, createLruCache, stableWaypointsHash } from "../state/domainStore";
@@ -592,6 +592,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   // Engineer markers/overlays are intentionally suppressed: map should display routes only.
   const [mapZoom, setMapZoom] = React.useState(12);
 
+  // Route click popup (anchored near click). Stores only routeId + lat/lng so content can re-render as state refreshes.
+  const [routePopup, setRoutePopup] = React.useState(null); // { routeId: string, lat: number, lng: number } | null
+
   // OSRM snap cache + inflight tracking:
   // - cache persists for the session (component lifetime)
   // - inflight map avoids duplicate requests for the same route+waypoints
@@ -804,6 +807,38 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     return m;
   }, [activeRoutes, scopedState?.tasks]);
 
+  const routePopupDetails = useMemo(() => {
+    if (!routePopup?.routeId) return null;
+    const route = (activeRoutes || []).find((r) => r.id === routePopup.routeId);
+    if (!route) return null;
+
+    const criteria = routeCompletionById?.[route.id] || computeRouteCompletionCriteriaForRoute(route, scopedState?.tasks || []);
+    const regionName = getRegionName(scopedState, route.regionId);
+    const managerName = getRegionalManagerName(scopedState, route.regionId);
+
+    const completionPercent = Number(route?.completion_percent || 0);
+
+    const strictStatus = criteria?.isCompleted
+      ? "Completed"
+      : (Number(criteria?.completedStops || 0) > 0 || Number(criteria?.completedTasks || 0) > 0)
+        ? "In progress"
+        : "Not completed";
+
+    return {
+      routeId: route.id,
+      routeName: route.name || route.id,
+      regionName,
+      managerName,
+      totalWaypoints: Number(criteria?.plannedStops ?? 0),
+      waypointsCovered: Math.min(Number(criteria?.completedStops ?? 0), Number(criteria?.plannedStops ?? 0)),
+      totalTasks: Number(criteria?.totalTasks ?? 0),
+      tasksCompleted: Number(criteria?.completedTasks ?? 0),
+      strictStatus,
+      completionPercent,
+      isStrictCompleted: Boolean(criteria?.isCompleted),
+    };
+  }, [routePopup, activeRoutes, routeCompletionById, scopedState]);
+
   const routeCompletionStatusById = useMemo(() => {
     // completed: strict completion criteria satisfied
     // in_progress: started (some waypoint progress OR any completed tasks) but not completed
@@ -862,6 +897,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     if (toFetch.length > 0) scheduleOsrmFetch(toFetch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routesWaypointMeta, scheduleOsrmFetch]);
+
+  // If scope changes and the selected popup route is no longer available, close the popup.
+  React.useEffect(() => {
+    if (!routePopup?.routeId) return;
+    const stillExists = (activeRoutes || []).some((r) => r.id === routePopup.routeId);
+    if (!stillExists) setRoutePopup(null);
+  }, [activeRoutes, routePopup?.routeId]);
 
   React.useEffect(() => {
     // Cleanup: abort any inflight requests when the map panel unmounts.
@@ -986,7 +1028,23 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       positions={positions}
                       pathOptions={baseStyle}
                       eventHandlers={{
-                        click: () => onSelectRouteId?.(r.id),
+                        click: (e) => {
+                          onSelectRouteId?.(r.id);
+
+                          // Anchor popup near click position (lat/lng), and let content re-render on state refresh.
+                          const latlng = e?.latlng;
+                          if (latlng && Number.isFinite(latlng.lat) && Number.isFinite(latlng.lng)) {
+                            setRoutePopup({ routeId: r.id, lat: latlng.lat, lng: latlng.lng });
+                          } else {
+                            // Fallback: anchor at first point of route if click event doesn't provide latlng (unlikely).
+                            const first = positions?.[0];
+                            if (Array.isArray(first) && first.length === 2) {
+                              setRoutePopup({ routeId: r.id, lat: first[0], lng: first[1] });
+                            } else {
+                              setRoutePopup({ routeId: r.id, lat: initialCenter[0], lng: initialCenter[1] });
+                            }
+                          }
+                        },
                       }}
                     >
                       <Tooltip sticky direction="top" opacity={0.95}>
@@ -1049,6 +1107,90 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   </React.Fragment>
                 );
               })}
+
+              {/* Route click popup (completion details) */}
+              {routePopup && routePopupDetails ? (
+                <Popup
+                  position={[routePopup.lat, routePopup.lng]}
+                  closeButton
+                  autoPan
+                  keepInView
+                  closeOnEscapeKey
+                  eventHandlers={{
+                    remove: () => setRoutePopup(null),
+                  }}
+                >
+                  <div
+                    role="dialog"
+                    aria-label={`Route completion details for ${routePopupDetails.routeName}`}
+                    style={{ minWidth: 260, maxWidth: 340 }}
+                  >
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                      <div>
+                        <div style={{ fontWeight: 900, fontSize: 13, color: "var(--ocean-text)" }}>
+                          {routePopupDetails.routeName}
+                        </div>
+                        <div className="mini" style={{ marginTop: 2 }}>
+                          ID: <strong>{routePopupDetails.routeId}</strong>
+                        </div>
+                      </div>
+
+                      <span
+                        className={
+                          routePopupDetails.strictStatus === "Completed"
+                            ? "badge badgeSuccess"
+                            : routePopupDetails.strictStatus === "In progress"
+                              ? "badge badgeWarn"
+                              : "badge badgeError"
+                        }
+                        aria-label={`Strict completion status: ${routePopupDetails.strictStatus}`}
+                        style={{ whiteSpace: "nowrap" }}
+                      >
+                        {routePopupDetails.strictStatus}
+                      </span>
+                    </div>
+
+                    <hr className="hr" style={{ margin: "10px 0" }} />
+
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <div className="mini">
+                        Region: <strong>{fmtOrDash(routePopupDetails.regionName)}</strong>
+                      </div>
+                      <div className="mini">
+                        Assigned manager: <strong>{fmtOrDash(routePopupDetails.managerName)}</strong>
+                      </div>
+
+                      <div className="mini">
+                        Total waypoints: <strong>{routePopupDetails.totalWaypoints}</strong>
+                      </div>
+                      <div className="mini">
+                        Waypoints covered:{" "}
+                        <strong>
+                          {routePopupDetails.waypointsCovered}/{routePopupDetails.totalWaypoints}
+                        </strong>
+                      </div>
+
+                      <div className="mini">
+                        Total tasks: <strong>{routePopupDetails.totalTasks}</strong>
+                      </div>
+                      <div className="mini">
+                        Tasks completed:{" "}
+                        <strong>
+                          {routePopupDetails.tasksCompleted}/{routePopupDetails.totalTasks}
+                        </strong>
+                      </div>
+
+                      <div className="mini">
+                        Overall route completion: <strong>{Math.round(routePopupDetails.completionPercent)}%</strong>
+                      </div>
+
+                      <div className="mini" style={{ marginTop: 2, color: "var(--ocean-muted)" }}>
+                        Strict completion requires <strong>all waypoints covered</strong> and <strong>all tasks completed</strong>.
+                      </div>
+                    </div>
+                  </div>
+                </Popup>
+              ) : null}
 
               {/* Waypoints (route checkpoints) */}
               {waypointLayers.map((layer) => {
@@ -1161,7 +1303,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         <div className="mini">
           Click a route polyline to filter list views by route. Selected route: <strong>{selectedRouteId || "None"}</strong>
         </div>
-        <button className="btn btnGhost" onClick={() => onSelectRouteId?.("")} disabled={!selectedRouteId}>
+        <button
+          className="btn btnGhost"
+          onClick={() => {
+            onSelectRouteId?.("");
+            setRoutePopup(null);
+          }}
+          disabled={!selectedRouteId}
+        >
           Clear route filter
         </button>
       </div>
