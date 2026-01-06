@@ -262,7 +262,7 @@
     Static (fixed) height across breakpoints for all dashboard KPI cards.
     Content must never overlap the reserved footer/action row.
   */
-  height: 260px;
+  height: 300px; /* increased so KPI body content + helper text fits cleanly */
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -311,7 +311,7 @@
 /* Clamp helper lines inside KPI cards so fixed height never overflows */
 .kpiCardBody .mini {
   display: -webkit-box;
-  -webkit-line-clamp: 3; /* enough for helper copy, but prevents footer overlap */
+  -webkit-line-clamp: 4; /* allow a bit more helper copy now that card height increased */
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
