@@ -1,96 +1,15 @@
 import React from "react";
-import { MapContainer, Polyline, TileLayer, CircleMarker } from "react-leaflet";
+import { CircleMarker, MapContainer, Polyline, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
-import { stableWaypointsHash } from "../state/domainStore";
+import { createOsrmSnapper, stableWaypointsHash, toLonLatFromLatLngPoints } from "../utils/osrm";
 
 /**
- * OSRM demo server settings (best-effort; same as MapPanel).
+ * Preview map used in the route editor modal.
+ * Planned routes should follow roads where possible using OSRM snapping.
  */
-const OSRM_BASE_URL = "https://router.project-osrm.org";
 
-function decodePolyline6(str) {
-  if (!str || typeof str !== "string") return [];
-  let index = 0;
-  const len = str.length;
-  let lat = 0;
-  let lng = 0;
-  const coordinates = [];
-
-  while (index < len) {
-    let b;
-    let shift = 0;
-    let result = 0;
-
-    do {
-      b = str.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20 && index < len);
-
-    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
-    lat += dlat;
-
-    shift = 0;
-    result = 0;
-
-    do {
-      b = str.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20 && index < len);
-
-    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
-    lng += dlng;
-
-    coordinates.push([lat / 1e6, lng / 1e6]);
-  }
-
-  return coordinates;
-}
-
-function buildOsrmRouteUrl(waypointsLonLat) {
-  const coords = (waypointsLonLat || []).map((p) => `${p[0]},${p[1]}`).join(";");
-  const u = new URL(`${OSRM_BASE_URL}/route/v1/driving/${coords}`);
-  u.searchParams.set("overview", "full");
-  u.searchParams.set("geometries", "polyline6");
-  return u.toString();
-}
-
-async function fetchOsrmSnappedRoute(waypointsLonLat, { signal } = {}) {
-  if (!Array.isArray(waypointsLonLat) || waypointsLonLat.length < 2) {
-    return { ok: false, error: "Need at least 2 waypoints." };
-  }
-  if (waypointsLonLat.length > 50) {
-    return { ok: false, error: "Too many waypoints for demo routing." };
-  }
-
-  try {
-    const res = await fetch(buildOsrmRouteUrl(waypointsLonLat), {
-      method: "GET",
-      signal,
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return { ok: false, error: `OSRM HTTP ${res.status}` };
-
-    const json = await res.json();
-    const route = json?.routes?.[0];
-    const geom = route?.geometry;
-    if (!geom) return { ok: false, error: "OSRM response missing geometry." };
-
-    const latLngs = decodePolyline6(geom);
-    if (!latLngs || latLngs.length < 2) return { ok: false, error: "Decoded route too short." };
-    return { ok: true, latLngs, source: "osrm" };
-  } catch (e) {
-    if (e?.name === "AbortError") return { ok: false, error: "aborted" };
-    return { ok: false, error: e?.message || "Network error" };
-  }
-}
-
-function toLonLat(waypointsLatLng) {
-  return (waypointsLatLng || [])
-    .filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng))
-    .map((p) => [p.lng, p.lat]);
-}
+// Shared snapper for this component instance (in-memory cache, best-effort).
+const snapper = createOsrmSnapper({ maxCacheEntries: 80, maxConcurrent: 1 });
 
 function toLatLngs(waypointsLatLng) {
   return (waypointsLatLng || [])
@@ -103,14 +22,14 @@ export default function RoutePreviewMap({ waypoints }) {
   /**
    * Small, isolated Leaflet preview map used only in the route editor modal.
    * - Uses OSRM demo server snapping as best-effort (fallback to straight lines).
-   * - Does not share cache/state with the main dashboard MapPanel.
+   * - Uses internal cache for smooth editing (drag/add/remove waypoints).
    */
   const [snapped, setSnapped] = React.useState(null); // latLngs[] | null
   const [status, setStatus] = React.useState("idle"); // idle|pending|ok|error
-  const abortRef = React.useRef(null);
 
-  const lonLat = React.useMemo(() => toLonLat(waypoints), [waypoints]);
+  const lonLat = React.useMemo(() => toLonLatFromLatLngPoints(waypoints), [waypoints]);
   const hash = React.useMemo(() => stableWaypointsHash(lonLat, { decimals: 5 }), [lonLat]);
+  const snapKey = React.useMemo(() => `preview::${hash}`, [hash]);
 
   const fallback = React.useMemo(() => toLatLngs(waypoints), [waypoints]);
   const positions = snapped?.length >= 2 ? snapped : fallback;
@@ -133,32 +52,33 @@ export default function RoutePreviewMap({ waypoints }) {
     }
 
     setStatus("pending");
-    try {
-      abortRef.current?.abort?.();
-    } catch {
-      // no-op
-    }
-    const ctl = new AbortController();
-    abortRef.current = ctl;
-
-    fetchOsrmSnappedRoute(lonLat, { signal: ctl.signal }).then((res) => {
-      if (!res.ok) {
+    snapper
+      .snap({ key: snapKey, waypointsLonLat: lonLat })
+      .then((res) => {
+        if (!res.ok) {
+          setSnapped(null);
+          setStatus("error");
+          return;
+        }
+        setSnapped(res.latLngs);
+        setStatus("ok");
+      })
+      .catch(() => {
         setSnapped(null);
         setStatus("error");
-        return;
-      }
-      setSnapped(res.latLngs);
-      setStatus("ok");
-    });
+      });
 
     return () => {
-      try {
-        ctl.abort();
-      } catch {
-        // no-op
-      }
+      // no-op: snapper manages aborts; preview does not strictly need per-effect abort
     };
-  }, [hash, lonLat]);
+  }, [hash, lonLat, snapKey]);
+
+  React.useEffect(() => {
+    return () => {
+      // cleanup any inflight request when preview unmounts
+      snapper.cleanup();
+    };
+  }, []);
 
   const center = React.useMemo(() => {
     const p = positions?.[0];
@@ -269,7 +189,7 @@ export default function RoutePreviewMap({ waypoints }) {
 // PUBLIC_INTERFACE
 function FitBounds({ bounds }) {
   /** Fits the preview map to the current polyline/waypoints bounds. */
-  const map = require("react-leaflet").useMap();
+  const map = useMap();
   React.useEffect(() => {
     if (!bounds) return;
     try {

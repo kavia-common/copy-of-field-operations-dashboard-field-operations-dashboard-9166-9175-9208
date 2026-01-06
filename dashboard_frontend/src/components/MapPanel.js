@@ -980,7 +980,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 const snapStatus = snapKey ? snapStatusByKey?.[snapKey] : "";
                 const snapped = snapKey ? snappedByKey?.[snapKey] || osrmCacheRef.current.get(snapKey) : null;
 
-                const plannedPositions = toLatLngs(r.polyline);
+                const rawPlannedPositions = toLatLngs(r.polyline);
+
+                // Planned route should follow roads too: use OSRM-snapped geometry when available.
+                // Graceful fallback: if OSRM fails/unavailable, render raw waypoint-to-waypoint polyline.
+                const plannedPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : rawPlannedPositions;
+
+                // Actual path uses the same best-effort OSRM geometry (kept as separate variable for styling semantics).
                 const actualPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : [];
 
                 if (plannedPositions.length < 2) return null;
