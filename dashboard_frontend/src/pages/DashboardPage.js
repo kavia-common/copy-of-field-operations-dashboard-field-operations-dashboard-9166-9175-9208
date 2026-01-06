@@ -15,6 +15,7 @@ import AllocationPanel from "../components/AllocationPanel";
 import Modal from "../components/Modal";
 import RouteCompletionCard from "../components/RouteCompletionCard";
 import ExceptionsCard from "../components/ExceptionsCard";
+import EngineerAllocationCard from "../components/EngineerAllocationCard";
 import ToastCenter from "../components/ToastCenter";
 import { getLastRefreshMeta, runDummyRefreshOnce } from "../state/dummyRefresh";
 
@@ -218,37 +219,12 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           <ExceptionsCard scopedState={scopedState} dateIso={todayIso} />
         </section>
 
-        {/* 3) Engineer Allocation */}
-        <section className="card" aria-label="Engineer allocation summary" data-testid="metric-allocation">
-          <div className="cardHeader">
-            <div>
-              <h2>Engineer Allocation</h2>
-              <p>Allocated vs unallocated engineers + workload signal</p>
-            </div>
-            <span className="badge">{allocationSummary.engineersInScopeCount} engineers</span>
-          </div>
+        {/* 3) Engineer Allocation (metrics per spec) */}
+        <section aria-label="Engineer allocation metrics" data-testid="metric-allocation">
+          <EngineerAllocationCard scopedState={scopedState} dateIso={todayIso} complianceSnapshot={complianceSnapshot} />
 
-          <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-            <div className="kpi">
-              <div className="kpiLabel">Allocated</div>
-              <div className="kpiValue">{allocationSummary.allocatedCount}</div>
-              <div className="kpiSub">Assigned to a route</div>
-            </div>
-            <div className="kpi">
-              <div className="kpiLabel">Unallocated</div>
-              <div className="kpiValue">{allocationSummary.unallocatedCount}</div>
-              <div className="kpiSub">No route assignment</div>
-            </div>
-            <div className="kpi">
-              <div className="kpiLabel">Avg workload</div>
-              <div className="kpiValue">{allocationSummary.avgWorkloadPerEngineer}</div>
-              <div className="kpiSub">Tasks due today + assigned routes</div>
-            </div>
-          </div>
-
-          <hr className="hr" />
-
-          <div className="splitRow">
+          {/* Keep existing drill-down entry points for allocation management */}
+          <div className="splitRow" style={{ marginTop: 10 }}>
             <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => setActiveModal("allocation")}>
               Drill down
             </button>

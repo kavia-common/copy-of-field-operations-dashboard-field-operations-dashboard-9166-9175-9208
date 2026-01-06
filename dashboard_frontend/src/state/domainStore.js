@@ -646,6 +646,229 @@ export function computeDprSnapshot(state, user, { dateIso } = {}) {
   return { date, planned, completed, onHold, postponed };
 }
 
+function safeReadJsonLocalStorage(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function safeWriteJsonLocalStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // no-op: localStorage may be blocked; trend will fallback to neutral
+  }
+}
+
+function isValidLatLng(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return true;
+}
+
+function minutesBetweenIso(aIso, bIso) {
+  const a = new Date(aIso).getTime();
+  const b = new Date(bIso).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
+  return Math.abs(b - a) / 60000;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Computes dashboard "Engineer Allocation" metrics.
+ *
+ * Definitions (aligned to the request and dummy data model):
+ * - Total Engineers: count of Field Engineers in current scope.
+ * - Allocated: engineers assigned to a route (via engineerAssignments).
+ * - Active / On Duty:
+ *    Prefer any explicit status field if present on engineer user record; otherwise:
+ *    treat engineers with an assignment OR tasks due today as "on duty".
+ * - Idle: on duty but not allocated.
+ * - Utilization: Allocated / Active (%).
+ * - Status breakdown:
+ *    Uses current assignment + inferred idle/offline. Paused uses a best-effort heuristic:
+ *    If engineer has ON_HOLD tasks due today, treat as Paused.
+ * - Deviations: count of compliance flags for today in the provided snapshot.
+ * - GPS Issues: count engineers with missing/invalid coords OR stale location (default >5 min),
+ *    also counts as GPS issue if there are compliance flags containing "gps" in rule/message.
+ *
+ * Trend indicator:
+ * - Stores last utilization value in localStorage and compares to current.
+ * - If increased: show up arrow, if decreased: down arrow, else neutral.
+ */
+export function computeEngineerAllocationSummary(
+  scopedState,
+  { dateIso = "", complianceSnapshot = null, persistTrend = true, gpsStaleMinutes = 5 } = {}
+) {
+  /** Computes Engineer Allocation metrics for the current scope. */
+  const date = datePrefixFromIso(dateIso);
+
+  const engineers = (scopedState?.users || []).filter((u) => u.role === "Field Engineer");
+  const totalEngineers = engineers.length;
+
+  const assignments = scopedState?.engineerAssignments || [];
+  const assignedEngineerIds = new Set(assignments.map((a) => a.engineerId));
+
+  const tasksToday = (scopedState?.tasks || []).filter((t) => (t.dueDate || "").slice(0, 10) === date);
+
+  // Active/on duty (best-effort, given dummy schema)
+  const onDutyEngineerIds = new Set();
+  engineers.forEach((e) => {
+    // Prefer explicit flag if the dummy dataset introduces it later.
+    const explicit =
+      e.isOnDuty === true ||
+      e.onDuty === true ||
+      String(e.shiftStatus || "").toLowerCase() === "on_duty" ||
+      String(e.shiftStatus || "").toLowerCase() === "on duty";
+
+    const hasAssignment = assignedEngineerIds.has(e.id);
+    const hasTasksToday = tasksToday.some((t) => t.engineerId === e.id);
+
+    if (explicit || hasAssignment || hasTasksToday) onDutyEngineerIds.add(e.id);
+  });
+
+  const activeOnDuty = onDutyEngineerIds.size;
+  const allocated = engineers.filter((e) => assignedEngineerIds.has(e.id)).length;
+  const idle = Math.max(0, activeOnDuty - allocated);
+
+  const utilization = activeOnDuty <= 0 ? 0 : clampPct((allocated / activeOnDuty) * 100);
+
+  // Status breakdown (best-effort):
+  // - Offline: no valid location OR stale beyond threshold
+  // - On Route: allocated AND not offline AND not paused
+  // - Paused: on duty AND has any ON_HOLD tasks today (heuristic)
+  // - Idle: on duty AND not allocated AND not offline
+  const locations = scopedState?.engineerLiveLocations || [];
+  const locByEngineerId = new Map(locations.map((l) => [l.engineerId, l]));
+
+  const isOffline = (engineerId) => {
+    const loc = locByEngineerId.get(engineerId);
+    if (!loc) return true;
+    if (!isValidLatLng(loc.lat, loc.lng)) return true;
+
+    // lastUpdated isn't in current dummy schema; try common fields; fallback to not stale.
+    const ts = loc.lastUpdated || loc.updatedAt || loc.timestamp || "";
+    if (!ts) return false;
+
+    const mins = minutesBetweenIso(ts, new Date().toISOString());
+    if (!Number.isFinite(mins)) return false;
+    return mins > gpsStaleMinutes;
+  };
+
+  const isPaused = (engineerId) => {
+    // Heuristic: any on-hold tasks today => paused
+    return tasksToday.some((t) => t.engineerId === engineerId && t.status === Statuses.ON_HOLD);
+  };
+
+  let onRoute = 0;
+  let paused = 0;
+  let idleStatus = 0;
+  let offline = 0;
+
+  engineers.forEach((e) => {
+    const offlineNow = isOffline(e.id);
+    const onDuty = onDutyEngineerIds.has(e.id);
+    const allocatedNow = assignedEngineerIds.has(e.id);
+
+    if (offlineNow) {
+      offline += 1;
+      return;
+    }
+
+    if (onDuty && isPaused(e.id)) {
+      paused += 1;
+      return;
+    }
+
+    if (allocatedNow) {
+      onRoute += 1;
+      return;
+    }
+
+    if (onDuty) {
+      idleStatus += 1;
+      return;
+    }
+
+    // Not on duty but also not offline: treat as offline-ish for display? Spec wants Offline row;
+    // but we keep "offline" strictly GPS/offline and leave others uncounted.
+  });
+
+  // Alerts
+  const deviations = (complianceSnapshot?.flags || []).filter((f) => (f.date || "").slice(0, 10) === date).length;
+
+  // GPS issues:
+  // - missing/invalid coords
+  // - stale based on timestamp fields (if present)
+  // - OR compliance flags whose rule/message mention gps
+  const gpsFlagEngineerIds = new Set(
+    (complianceSnapshot?.flags || [])
+      .filter((f) => (f.date || "").slice(0, 10) === date)
+      .filter((f) => String(f.rule || "").toLowerCase().includes("gps") || String(f.message || "").toLowerCase().includes("gps"))
+      .map((f) => f.engineerId)
+      .filter(Boolean)
+  );
+
+  const gpsIssuesEngineerIds = new Set();
+  engineers.forEach((e) => {
+    const loc = locByEngineerId.get(e.id);
+    if (!loc) {
+      gpsIssuesEngineerIds.add(e.id);
+      return;
+    }
+    if (!isValidLatLng(loc.lat, loc.lng)) {
+      gpsIssuesEngineerIds.add(e.id);
+      return;
+    }
+    const ts = loc.lastUpdated || loc.updatedAt || loc.timestamp || "";
+    if (ts) {
+      const mins = minutesBetweenIso(ts, new Date().toISOString());
+      if (Number.isFinite(mins) && mins > gpsStaleMinutes) gpsIssuesEngineerIds.add(e.id);
+    }
+  });
+
+  gpsFlagEngineerIds.forEach((id) => gpsIssuesEngineerIds.add(id));
+  const gpsIssues = gpsIssuesEngineerIds.size;
+
+  // Trend persistence for utilization
+  const TREND_KEY = `fod_utilization_trend_${date}`;
+  const prev = safeReadJsonLocalStorage(TREND_KEY);
+  const prevValue = Number(prev?.value);
+  let trend = "neutral"; // up | down | neutral
+  if (Number.isFinite(prevValue)) {
+    if (utilization > prevValue) trend = "up";
+    else if (utilization < prevValue) trend = "down";
+  }
+
+  if (persistTrend) safeWriteJsonLocalStorage(TREND_KEY, { value: utilization, at: new Date().toISOString() });
+
+  return {
+    date,
+    totals: {
+      totalEngineers,
+      activeOnDuty,
+      allocated,
+      idle,
+      utilizationPercent: utilization,
+      utilizationTrend: trend,
+    },
+    status: {
+      onRoute,
+      paused,
+      idle: idleStatus,
+      offline,
+    },
+    alerts: {
+      deviations,
+      gpsIssues,
+    },
+  };
+}
+
 // PUBLIC_INTERFACE
 export function updateTaskStatus(state, { taskId, toStatus, reason, actorUserId }) {
   /**
