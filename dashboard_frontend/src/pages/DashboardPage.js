@@ -11,6 +11,7 @@ import {
 } from "../state/compliance";
 import { downloadCsv, toCsv } from "../utils/csv";
 import MapPanel from "../components/MapPanel";
+import LegendCard from "../components/LegendCard";
 import AllocationPanel from "../components/AllocationPanel";
 import Modal from "../components/Modal";
 import RouteCompletionCard from "../components/RouteCompletionCard";
@@ -198,7 +199,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         }}
       />
 
-      {/* Top: full-width map */}
+      {/* Top: Legend (left) + Map (right) */}
       <div data-testid="dashboard-map">
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="splitRow" style={{ alignItems: "center" }}>
@@ -222,13 +223,16 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           </div>
         </div>
 
-        <MapPanel
-          scopedState={scopedState}
-          selectedRouteId={selectedRouteId}
-          onSelectRouteId={setSelectedRouteId}
-          complianceSnapshot={complianceSnapshot}
-          focusDeviation={focusDeviation}
-        />
+        <div className="dashboardMapRow" aria-label="Map and legend">
+          <LegendCard />
+          <MapPanel
+            scopedState={scopedState}
+            selectedRouteId={selectedRouteId}
+            onSelectRouteId={setSelectedRouteId}
+            complianceSnapshot={complianceSnapshot}
+            focusDeviation={focusDeviation}
+          />
+        </div>
       </div>
 
       {/* Bottom: metric cards */}

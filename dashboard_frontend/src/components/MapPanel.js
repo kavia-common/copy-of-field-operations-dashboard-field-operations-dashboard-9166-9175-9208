@@ -25,11 +25,12 @@ import "leaflet.fullscreen";
  * - Mandatory region selector; checkbox-based multi-route visibility.
  * - Map layers per spec:
  *    1) Planned route: blue dashed polyline (one per visible route).
- *    2) Live GPS trail: engineer-specific polyline, green when on-route and red when deviated.
+ *    2) Actual (live GPS trail): engineer-specific polyline of the *true GPS path taken*.
+ *       - Rendered as contiguous segments: on-route uses the configured actual color; off-route segments are red.
  *    3) Deviation indicators:
- *        - optional buffered “corridor” around the planned route (Turf.js buffer)
- *        - deviated segments highlighted in red (when live points fall outside corridor)
- *        - on-map status chip (On route / Deviated) with deviation meters and “since” timestamp.
+ *        - optional corridor visualization along planned route (thick translucent stroke)
+ *        - off-route segments are highlighted in red as part of the actual trail
+ *        - engineer marker tooltip shows deviation meters and “since” timestamp.
  * - Engineer “moving marker” is the last live point (from dummy live locations / simulated trail).
  *
  * Compatibility constraints (must preserve prior behavior):
@@ -369,7 +370,63 @@ function plannedRouteStyle({ zoom }) {
 
 function livePathStyle({ zoom, isDeviated }) {
   const base = strokeWeightForZoom(zoom, { min: 4, max: 8 });
-  return { color: isDeviated ? DEVIATION_RED : LIVE_GREEN, weight: Math.max(3, base - 1), opacity: 0.98, lineCap: "round", lineJoin: "round" };
+  return {
+    color: isDeviated ? DEVIATION_RED : LIVE_GREEN,
+    weight: Math.max(3, base - 1),
+    opacity: 0.98,
+    lineCap: "round",
+    lineJoin: "round",
+  };
+}
+
+/**
+ * Segment a trail into contiguous polylines classified as on-route vs off-route.
+ * We keep the trail continuous, but render each segment with its own stroke color.
+ */
+// PUBLIC_INTERFACE
+function segmentTrailByDeviation({ trailLatLngs, routeLine, thresholdMeters }) {
+  /**
+   * Returns: Array<{ positions: [lat,lng][], isDeviated: boolean }>
+   *
+   * Algorithm:
+   * - classify each point as deviated or not (distance-to-route > threshold)
+   * - build segments; when classification changes, start a new segment
+   * - to avoid visible gaps, we include the transition point in both segments
+   */
+  if (!Array.isArray(trailLatLngs) || trailLatLngs.length < 2 || !routeLine) return [];
+
+  const flags = trailLatLngs.map((p) => {
+    const lat = p?.[0];
+    const lng = p?.[1];
+    const { isDeviated } = computeDeviationForPoint({ routeLine, lat, lng, thresholdMeters });
+    return Boolean(isDeviated);
+  });
+
+  const segments = [];
+  let current = [trailLatLngs[0]];
+  let currentFlag = flags[0];
+
+  for (let i = 1; i < trailLatLngs.length; i += 1) {
+    const pt = trailLatLngs[i];
+    const flag = flags[i];
+
+    if (flag === currentFlag) {
+      current.push(pt);
+      continue;
+    }
+
+    // Close out the previous segment; include transition point to keep line continuous.
+    current.push(pt);
+    if (current.length >= 2) segments.push({ positions: current, isDeviated: currentFlag });
+
+    // Start new segment; include transition point as first point.
+    current = [pt];
+    currentFlag = flag;
+  }
+
+  if (current.length >= 2) segments.push({ positions: current, isDeviated: currentFlag });
+
+  return segments;
 }
 
 function deviationSegmentStyle({ zoom }) {
@@ -1221,7 +1278,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       const deviationSince = deviationSinceByEngineerRef.current.get(engineerId) || null;
 
-      const deviatedSegments = computeDeviationSegmentsFromTrail({
+      const segmentedTrail = segmentTrailByDeviation({
         trailLatLngs: trail,
         routeLine: plannedLine,
         thresholdMeters: allowedDeviationMeters,
@@ -1234,13 +1291,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         routeId,
         routeName: route?.name || routeId,
         plannedLatLngs,
-        trailLatLngs: trail,
+        trailLatLngs: trail, // always the true GPS trail (continuous)
+        segmentedTrail, // computed rendering segments (on-route vs off-route)
         plannedLine,
         allowedDeviationMeters,
         isDeviatedNow,
         deviationMeters: pointDeviation?.deviationMeters ?? null,
         deviationSince,
-        deviatedSegments,
       });
     });
 
@@ -1271,14 +1328,18 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       if (Array.isArray(dest) && dest.length === 2) pts.push(dest);
     });
 
-    // Live trails + deviated segments + live engineer marker
+    // Live trails + segmented trail (on/off) + live engineer marker
     (activeLocations || []).forEach((l) => {
       if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng)) return;
       pts.push([l.lat, l.lng]);
 
       const live = liveTrailsByEngineerId.get(l.engineerId);
+
+      // Always include the raw GPS trail points.
       (live?.trailLatLngs || []).forEach((p) => pts.push(p));
-      (live?.deviatedSegments || []).forEach((seg) => seg.forEach((p) => pts.push(p)));
+
+      // Also include any segmented points (covers both on-route and off-route explicitly).
+      (live?.segmentedTrail || []).forEach((seg) => (seg?.positions || []).forEach((p) => pts.push(p)));
     });
 
     return pts;
@@ -1770,46 +1831,49 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   })
                 : null}
 
-              {/* Live GPS trails (per engineer) */}
+              {/* Live GPS trails (per engineer) — rendered as segmented actual path:
+                  - on-route segments use the existing actual color (LIVE_GREEN)
+                  - off-route segments use solid red (DEVIATION_RED)
+                  NOTE: this keeps “Actual” as the true GPS trail at all times; deviation is just a styling outcome.
+               */}
               {showLiveTrails
-                ? (activeLocations || []).map((loc) => {
+                ? (activeLocations || []).flatMap((loc) => {
                     const engineerId = loc.engineerId;
                     const live = liveTrailsByEngineerId.get(engineerId);
-                    if (!live?.trailLatLngs || live.trailLatLngs.length < 2) return null;
+                    const segments = live?.segmentedTrail || [];
+                    if (!segments.length) return [];
 
                     const routeVisible = live.routeId ? visibleRouteIds.has(live.routeId) : true;
                     const opacity = routeVisible ? 0.98 : 0.35;
 
-                    const liveStyle = { ...livePathStyle({ zoom: mapZoom, isDeviated: live.isDeviatedNow }), opacity };
+                    return segments.map((seg, idx) => {
+                      const isDev = Boolean(seg?.isDeviated);
 
-                    return (
-                      <Polyline key={`live_${engineerId}`} positions={live.trailLatLngs} pathOptions={liveStyle} interactive={false}>
-                        <Tooltip sticky direction="top" opacity={0.95}>
-                          <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, engineerId)}</div>
-                          <div className="mini">
-                            Live trail:{" "}
-                            <strong style={{ color: live.isDeviatedNow ? DEVIATION_RED : LIVE_GREEN }}>{live.isDeviatedNow ? "Deviated" : "On route"}</strong>
-                          </div>
-                          <div className="mini">
-                            Route: <strong>{live.routeName || "Unassigned"}</strong>
-                          </div>
-                        </Tooltip>
-                      </Polyline>
-                    );
-                  })
-                : null}
+                      const style = isDev
+                        ? { ...deviationSegmentStyle({ zoom: mapZoom }), opacity }
+                        : { ...livePathStyle({ zoom: mapZoom, isDeviated: false }), opacity };
 
-              {/* Deviated segments (red) */}
-              {showDeviations
-                ? (activeLocations || []).flatMap((loc) => {
-                    const engineerId = loc.engineerId;
-                    const live = liveTrailsByEngineerId.get(engineerId);
-                    const segments = live?.deviatedSegments || [];
-                    if (!segments.length) return [];
-
-                    return segments.map((seg, idx) => (
-                      <Polyline key={`devseg_${engineerId}_${idx}`} positions={seg} pathOptions={deviationSegmentStyle({ zoom: mapZoom })} interactive={false} />
-                    ));
+                      return (
+                        <Polyline key={`live_${engineerId}_${idx}`} positions={seg.positions} pathOptions={style} interactive={false}>
+                          {/* Attach tooltip to the first segment only to avoid repetitive hover popups */}
+                          {idx === 0 ? (
+                            <Tooltip sticky direction="top" opacity={0.95}>
+                              <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, engineerId)}</div>
+                              <div className="mini">
+                                Actual trail:{" "}
+                                <strong style={{ color: live.isDeviatedNow ? DEVIATION_RED : LIVE_GREEN }}>{live.isDeviatedNow ? "Deviated" : "On route"}</strong>
+                              </div>
+                              <div className="mini">
+                                Route: <strong>{live.routeName || "Unassigned"}</strong>
+                              </div>
+                              <div className="mini" style={{ color: "var(--ocean-muted)" }}>
+                                Off-route segments are highlighted in red.
+                              </div>
+                            </Tooltip>
+                          ) : null}
+                        </Polyline>
+                      );
+                    });
                   })
                 : null}
 
@@ -1862,180 +1926,6 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 );
               })}
             </MapContainer>
-
-            {/* Status strip / legend (left side, responsive; avoids overlapping top-right controls) */}
-            <div className="mapLegend mapLegendLeft" aria-label="Live route compliance status">
-              {/* Reserve space on the right so Leaflet top-right controls never overlap legend content */}
-              <div className="mapLegendSafeRight">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <div style={{ fontWeight: 900, fontSize: 12 }}>Live Status</div>
-
-                {Object.values(snapStatusByKey || {}).some((s) => s === "pending") ? (
-                  <span
-                    className="badge"
-                    style={{
-                      padding: "4px 8px",
-                      fontSize: 11,
-                      background: "rgba(30,58,138,0.08)",
-                      borderColor: "rgba(30,58,138,0.20)",
-                      color: "var(--ocean-primary)",
-                      fontWeight: 900,
-                    }}
-                    aria-label="Routes are being snapped to OSRM"
-                  >
-                    Snapping…
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="mini" style={{ marginTop: 6, color: "var(--ocean-muted)" }}>
-                Showing all engineers in the selected region (deviated first).
-              </div>
-
-              <div style={{ display: "grid", gap: 8, marginTop: 10, maxHeight: 200, overflow: "auto", paddingRight: 6 }}>
-                {liveStatusSummary.slice(0, 10).map((row) => (
-                  <div
-                    key={`status_${row.engineerId}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      padding: "8px 10px",
-                      borderRadius: 12,
-                      border: "1px solid var(--ocean-border)",
-                      background: "rgba(255,255,255,0.70)",
-                    }}
-                  >
-                    <div style={{ minWidth: 160 }}>
-                      <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>{row.engineerName}</div>
-                      <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                        {row.routeName || "Unassigned"}
-                      </div>
-                    </div>
-
-                    <div style={{ textAlign: "right" }}>
-                      <div className="mini" style={{ fontWeight: 900, color: row.isDeviatedNow ? DEVIATION_RED : LIVE_GREEN }}>
-                        {row.isDeviatedNow ? "Deviated" : "On route"}
-                      </div>
-                      <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                        {Number.isFinite(row.deviationMeters) ? `${Math.round(row.deviationMeters)}m` : "—"} · {row.isDeviatedNow ? formatTimeSince(row.deviationSince) : "—"}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {liveStatusSummary.length > 10 ? (
-                  <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                    +{liveStatusSummary.length - 10} more
-                  </div>
-                ) : null}
-              </div>
-
-              <hr className="hr" style={{ margin: "10px 0" }} />
-
-              <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)" }}>
-                Legend
-              </div>
-
-              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span aria-hidden="true" style={{ width: 26, height: 0, borderTop: `4px dashed ${PLANNED_BLUE}`, borderRadius: 999, display: "inline-block" }} />
-                  <span>
-                    Planned: <strong style={{ color: PLANNED_BLUE }}>blue dashed</strong>
-                  </span>
-                </div>
-
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span aria-hidden="true" style={{ width: 26, height: 0, borderTop: `4px solid ${LIVE_GREEN}`, borderRadius: 999, display: "inline-block" }} />
-                  <span>
-                    Live: <strong style={{ color: LIVE_GREEN }}>green</strong> (on route)
-                  </span>
-                </div>
-
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span aria-hidden="true" style={{ width: 26, height: 0, borderTop: `4px solid ${DEVIATION_RED}`, borderRadius: 999, display: "inline-block" }} />
-                  <span>
-                    Deviation: <strong style={{ color: DEVIATION_RED }}>red</strong>
-                  </span>
-                </div>
-
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
-                  <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 99, background: WAYPOINT_COVERED, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
-                  <span>
-                    Waypoint: <strong style={{ color: WAYPOINT_COVERED }}>covered</strong>
-                  </span>
-                </div>
-
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 99, background: WAYPOINT_REMAINING, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
-                  <span>
-                    Waypoint: <strong style={{ color: WAYPOINT_REMAINING }}>remaining</strong>
-                  </span>
-                </div>
-
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: WAYPOINT_DESTINATION, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
-                  <span>
-                    Destination: <strong style={{ color: WAYPOINT_DESTINATION }}>D pin</strong>
-                  </span>
-                </div>
-
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: WAYPOINT_COVERED, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
-                  <span>
-                    Start: <strong style={{ color: WAYPOINT_COVERED }}>green pin</strong>
-                  </span>
-                </div>
-
-                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: "#0F766E", display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
-                  <span>
-                    Engineer: <strong>Avatar</strong> (live position)
-                  </span>
-                </div>
-
-                <div className="mini" style={{ color: "var(--ocean-muted)", marginTop: 4 }}>
-                  Corridor (optional) shows a visual “allowed” band around planned route (default on).
-                </div>
-              </div>
-
-              <hr className="hr" style={{ margin: "10px 0" }} />
-
-              <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)" }}>
-                Routes (colors)
-              </div>
-
-              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                {routeLegendRows.slice(0, 6).map((l) => (
-                  <div key={l.routeId} style={{ display: "flex", alignItems: "center", gap: 10, opacity: visibleRouteIds.has(l.routeId) ? 1 : 0.35 }}>
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: 99,
-                        background: l.color,
-                        display: "inline-block",
-                        border: "1px solid rgba(17,24,39,0.18)",
-                      }}
-                    />
-                    <span className="mini">{l.label}</span>
-                  </div>
-                ))}
-                {routeLegendRows.length > 6 ? (
-                  <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                    +{routeLegendRows.length - 6} more
-                  </div>
-                ) : null}
-              </div>
-
-              {anyOsrmUsed ? (
-                <div className="mini" style={{ marginTop: 10, color: "var(--ocean-muted)" }}>
-                  Planned route snapping: <strong>OSRM best-effort</strong>
-                </div>
-              ) : null}
-              </div>
-            </div>
 
             <Modal
               open={Boolean(routeDetailsModalRouteId && routePopupDetails)}
