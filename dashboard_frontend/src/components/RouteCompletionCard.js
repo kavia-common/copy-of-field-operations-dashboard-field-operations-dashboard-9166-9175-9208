@@ -40,7 +40,7 @@ export default function RouteCompletionCard({ scopedState }) {
       <div className="cardHeader">
         <div>
           <h2>Route Completion</h2>
-          <p>Minimal completion signal (routes + overall progress)</p>
+          <p>Overall route progress</p>
         </div>
 
         <span className={toneToBadgeClass(overallTone)}>
@@ -71,8 +71,7 @@ export default function RouteCompletionCard({ scopedState }) {
       <hr className="hr" />
 
       <div className="mini">
-        Notes: a route is marked completed only when all route points are covered and all tasks on that route are completed. Exceptions
-        and non-compliance are shown in their dedicated cards/sections.
+        Notes: a route is marked completed only when all route points are covered and all tasks on that route are completed.
       </div>
     </div>
   );

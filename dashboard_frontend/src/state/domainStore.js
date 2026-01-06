@@ -427,6 +427,42 @@ export function computeExceptionsSummary(scopedState, { dateIso } = {}) {
 }
 
 // PUBLIC_INTERFACE
+export function selectTasksDueOnDate(scopedState, { dateIso } = {}) {
+  /**
+   * Returns tasks scoped to the provided state and filtered to tasks due on the given date.
+   * dateIso can be a full ISO string; only the YYYY-MM-DD prefix is used.
+   */
+  const date = datePrefixFromIso(dateIso);
+  const tasksList = scopedState?.tasks || [];
+  return tasksList.filter((t) => (t.dueDate || "").slice(0, 10) === date);
+}
+
+// PUBLIC_INTERFACE
+export function selectTaskCountsByStatus(scopedState, { dateIso } = {}) {
+  /**
+   * Computes date-scoped task counts using the canonical Statuses definitions.
+   * This is intended to keep KPI cards consistent across the app.
+   *
+   * Counts returned:
+   *  - completed: status === COMPLETED
+   *  - rejected: status === REJECTED
+   *  - redo: status === REDO
+   */
+  const tasksToday = selectTasksDueOnDate(scopedState, { dateIso });
+
+  const completed = tasksToday.filter((t) => t.status === Statuses.COMPLETED).length;
+  const rejected = tasksToday.filter((t) => t.status === Statuses.REJECTED).length;
+  const redo = tasksToday.filter((t) => t.status === Statuses.REDO).length;
+
+  return {
+    date: datePrefixFromIso(dateIso),
+    completed,
+    rejected,
+    redo,
+  };
+}
+
+// PUBLIC_INTERFACE
 export function computeRouteCompletionWithExceptionsSummary(
   scopedState,
   { dateIso, complianceSnapshot = null } = {}

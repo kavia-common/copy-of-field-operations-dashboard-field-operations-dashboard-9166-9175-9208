@@ -213,9 +213,9 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           <RouteCompletionCard scopedState={scopedState} dateIso={todayIso} />
         </section>
 
-        {/* 2) Exceptions (rejected/redo only + drill-down) */}
-        <section aria-label="Exceptions summary" data-testid="metric-exceptions">
-          <ExceptionsCard scopedState={scopedState} dateIso={todayIso} onOpenTasks={() => navigate("/tasks")} />
+        {/* 2) Tasks (completed / rejected / redo) */}
+        <section aria-label="Tasks summary" data-testid="metric-tasks">
+          <ExceptionsCard scopedState={scopedState} dateIso={todayIso} />
         </section>
 
         {/* 3) Engineer Allocation */}
