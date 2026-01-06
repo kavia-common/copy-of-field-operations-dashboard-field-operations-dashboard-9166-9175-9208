@@ -6,7 +6,17 @@ import React, { useEffect } from "react";
  */
 
 // PUBLIC_INTERFACE
-export default function Modal({ open, title, description, onClose, children, footer, maxWidth = 980 }) {
+export default function Modal({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+  footer,
+  maxWidth = 980,
+  ariaLabelledBy,
+  ariaDescribedBy,
+}) {
   /** Accessible modal dialog. Closes on ESC and overlay click. */
   useEffect(() => {
     if (!open) return undefined;
@@ -21,6 +31,11 @@ export default function Modal({ open, title, description, onClose, children, foo
 
   if (!open) return null;
 
+  const ariaProps =
+    ariaLabelledBy || ariaDescribedBy
+      ? { "aria-labelledby": ariaLabelledBy, "aria-describedby": ariaDescribedBy }
+      : { "aria-label": title };
+
   return (
     <div
       className="modalOverlay"
@@ -30,14 +45,7 @@ export default function Modal({ open, title, description, onClose, children, foo
         if (e.target === e.currentTarget) onClose?.();
       }}
     >
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        style={{ maxWidth, width: "100%" }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+      <div className="modal" role="dialog" aria-modal="true" {...ariaProps} style={{ maxWidth, width: "100%" }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="modalHeader">
           <div>
             <h3>{title}</h3>

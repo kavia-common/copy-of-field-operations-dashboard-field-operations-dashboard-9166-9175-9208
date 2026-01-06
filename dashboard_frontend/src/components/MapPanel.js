@@ -1,7 +1,8 @@
 import React, { useMemo, useRef } from "react";
-import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { createPortal } from "react-dom";
+import Modal from "./Modal";
 import {
   computeRouteCompletionCriteriaForRoute,
   createLruCache,
@@ -528,8 +529,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   // Multi-route visibility set.
   const [visibleRouteIds, setVisibleRouteIds] = React.useState(() => new Set());
 
-  // Route click popup anchor.
-  const [routePopup, setRoutePopup] = React.useState(null);
+  // App-level route details modal (replaces Leaflet inline popup to avoid shrinking inside the map).
+  const [routeDetailsModalRouteId, setRouteDetailsModalRouteId] = React.useState("");
 
   // OSRM snap cache + inflight tracking.
   const osrmCacheRef = useRef(null);
@@ -568,7 +569,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
     // If selectedRouteId is not in new region, clear it.
     if (selectedRouteId && !ids.has(selectedRouteId)) onSelectRouteId?.("");
-    setRoutePopup(null);
+    setRouteDetailsModalRouteId("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRegionId]);
 
@@ -741,12 +742,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     onSelectRouteId?.(rid);
   }, [focusDeviation, allRoutes, onSelectRouteId, selectedRegionId]);
 
-  // Popup close if route disappears.
+  // Close modal if the route disappears from current region (e.g., scope/region change or refresh data changes).
   React.useEffect(() => {
-    if (!routePopup?.routeId) return;
-    const stillExists = (routesInRegion || []).some((r) => r.id === routePopup.routeId);
-    if (!stillExists) setRoutePopup(null);
-  }, [routesInRegion, routePopup?.routeId]);
+    if (!routeDetailsModalRouteId) return;
+    const stillExists = (routesInRegion || []).some((r) => r.id === routeDetailsModalRouteId);
+    if (!stillExists) setRouteDetailsModalRouteId("");
+  }, [routesInRegion, routeDetailsModalRouteId]);
 
   const waypointLayers = useMemo(() => {
     return (activeRoutes || [])
@@ -788,8 +789,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   }, [activeRoutes]);
 
   const routePopupDetails = useMemo(() => {
-    if (!routePopup?.routeId) return null;
-    const route = (routesInRegion || []).find((r) => r.id === routePopup.routeId);
+    if (!routeDetailsModalRouteId) return null;
+    const route = (routesInRegion || []).find((r) => r.id === routeDetailsModalRouteId);
     if (!route) return null;
 
     const criteria = computeRouteCompletionCriteriaForRoute(route, scopedState?.tasks || []);
@@ -812,7 +813,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       .map((id) => ({ id, name: selectEngineerNameById(scopedState, id) }))
       .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
-    // New: deviation aggregation for this route (from compliance snapshot flags).
+    // Deviation aggregation for this route (from compliance snapshot flags).
     const deviationDetails = selectDeviationDetailsForRoute(scopedState, complianceSnapshot, { routeId: route.id });
 
     const deviationEngineerNames =
@@ -840,7 +841,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       comments,
     };
-  }, [routePopup, routesInRegion, scopedState, complianceSnapshot]);
+  }, [routeDetailsModalRouteId, routesInRegion, scopedState, complianceSnapshot]);
 
   const routeLegendRows = useMemo(() => {
     return (routesInRegion || [])
@@ -1023,19 +1024,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       positions={plannedPositions}
                       pathOptions={plannedStyle}
                       eventHandlers={{
-                        click: (e) => {
+                        click: () => {
+                          // Preserve existing selection behavior (filters other panels, highlights route).
                           onSelectRouteId?.(r.id);
-                          const latlng = e?.latlng;
-                          if (latlng && Number.isFinite(latlng.lat) && Number.isFinite(latlng.lng)) {
-                            setRoutePopup({ routeId: r.id, lat: latlng.lat, lng: latlng.lng });
-                          } else {
-                            const first = plannedPositions?.[0];
-                            if (Array.isArray(first) && first.length === 2) {
-                              setRoutePopup({ routeId: r.id, lat: first[0], lng: first[1] });
-                            } else {
-                              setRoutePopup({ routeId: r.id, lat: initialCenter[0], lng: initialCenter[1] });
-                            }
-                          }
+
+                          // Replace Leaflet inline popup (shrinks in map) with app-level modal.
+                          setRouteDetailsModalRouteId(r.id);
                         },
                       }}
                     >
@@ -1151,226 +1145,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 );
               })}
 
-              {routePopup && routePopupDetails ? (
-                <Popup
-                  position={[routePopup.lat, routePopup.lng]}
-                  closeButton
-                  autoPan
-                  keepInView
-                  closeOnEscapeKey
-                  eventHandlers={{
-                    remove: () => setRoutePopup(null),
-                  }}
-                >
-                  <div role="dialog" aria-label={`Route completion details for ${routePopupDetails.routeName}`} style={{ minWidth: 260, maxWidth: 340 }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                      <div>
-                        <div style={{ fontWeight: 900, fontSize: 13, color: "var(--ocean-text)" }}>{routePopupDetails.routeName}</div>
-                        <div className="mini" style={{ marginTop: 2 }}>
-                          ID: <strong>{routePopupDetails.routeId}</strong>
-                        </div>
-                      </div>
-
-                      <span
-                        className={
-                          routePopupDetails.strictStatus === "Completed"
-                            ? "badge badgeSuccess"
-                            : routePopupDetails.strictStatus === "In progress"
-                              ? "badge badgeWarn"
-                              : "badge badgeError"
-                        }
-                        aria-label={`Strict completion status: ${routePopupDetails.strictStatus}`}
-                        style={{ whiteSpace: "nowrap" }}
-                      >
-                        {routePopupDetails.strictStatus}
-                      </span>
-                    </div>
-
-                    <hr className="hr" style={{ margin: "10px 0" }} />
-
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <div className="mini">
-                        Region: <strong>{fmtOrDash(routePopupDetails.regionName)}</strong>
-                      </div>
-                      <div className="mini">
-                        Assigned manager: <strong>{fmtOrDash(routePopupDetails.managerName)}</strong>
-                      </div>
-
-                      <div className="mini">
-                        Assigned engineer(s):{" "}
-                        <strong>
-                          {Array.isArray(routePopupDetails.assignedEngineers) && routePopupDetails.assignedEngineers.length > 0
-                            ? routePopupDetails.assignedEngineers.map((e) => e.name || e.id).join(", ")
-                            : "Unassigned"}
-                        </strong>
-                      </div>
-
-                      <div className="mini">
-                        Total waypoints: <strong>{routePopupDetails.totalWaypoints}</strong>
-                      </div>
-                      <div className="mini">
-                        Waypoints covered:{" "}
-                        <strong>
-                          {routePopupDetails.waypointsCovered}/{routePopupDetails.totalWaypoints}
-                        </strong>
-                      </div>
-
-                      <div className="mini">
-                        Total tasks: <strong>{routePopupDetails.totalTasks}</strong>
-                      </div>
-                      <div className="mini">
-                        Tasks completed:{" "}
-                        <strong>
-                          {routePopupDetails.tasksCompleted}/{routePopupDetails.totalTasks}
-                        </strong>
-                      </div>
-
-                      <div className="mini">
-                        Overall route completion: <strong>{Math.round(routePopupDetails.completionPercent)}%</strong>
-                      </div>
-
-                      <div className="mini" style={{ marginTop: 2, color: "var(--ocean-muted)" }}>
-                        Strict completion requires <strong>all waypoints covered</strong> and <strong>all tasks completed</strong>.
-                      </div>
-
-                      {routePopupDetails.deviationDetails?.totalFlags ? (
-                        <>
-                          <hr className="hr" style={{ margin: "10px 0" }} />
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                            <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Deviation details</div>
-                            <span
-                              className={
-                                String(routePopupDetails.deviationDetails.worstSeverity).toLowerCase() === "high"
-                                  ? "badge badgeError"
-                                  : String(routePopupDetails.deviationDetails.worstSeverity).toLowerCase() === "medium"
-                                    ? "badge badgeWarn"
-                                    : "badge"
-                              }
-                              style={{ whiteSpace: "nowrap" }}
-                              aria-label={`Worst deviation severity: ${routePopupDetails.deviationDetails.worstSeverity || "unknown"}`}
-                            >
-                              {(routePopupDetails.deviationDetails.worstSeverity || "—").toUpperCase()}
-                            </span>
-                          </div>
-
-                          <div className="mini" style={{ marginTop: 6 }}>
-                            Total deviation flags: <strong>{routePopupDetails.deviationDetails.totalFlags}</strong>
-                          </div>
-
-                          {Array.isArray(routePopupDetails.deviationEngineerNames) && routePopupDetails.deviationEngineerNames.length > 0 ? (
-                            <div className="mini" style={{ marginTop: 6 }}>
-                              Affected engineer(s):{" "}
-                              <strong>{routePopupDetails.deviationEngineerNames.map((e) => e.name || e.id).join(", ")}</strong>
-                            </div>
-                          ) : null}
-
-                          {Array.isArray(routePopupDetails.deviationDetails.byRule) && routePopupDetails.deviationDetails.byRule.length > 0 ? (
-                            <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                              {routePopupDetails.deviationDetails.byRule.slice(0, 4).map((r) => (
-                                <div
-                                  key={r.rule}
-                                  style={{
-                                    padding: "6px 8px",
-                                    border: "1px solid var(--ocean-border)",
-                                    borderRadius: 10,
-                                    background: "rgba(255,255,255,0.70)",
-                                  }}
-                                >
-                                  <div className="mini" style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                                    <span style={{ fontWeight: 900, color: "var(--ocean-text)" }}>{r.ruleLabel}</span>
-                                    <span style={{ whiteSpace: "nowrap", color: "var(--ocean-muted)" }}>
-                                      {r.count} · {(r.worstSeverity || "—").toUpperCase()}
-                                    </span>
-                                  </div>
-                                  {r.sampleMessage ? (
-                                    <div className="mini" style={{ marginTop: 4, lineHeight: 1.25, color: "var(--ocean-muted)" }}>
-                                      {r.sampleMessage}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ))}
-                              {routePopupDetails.deviationDetails.byRule.length > 4 ? (
-                                <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                                  +{routePopupDetails.deviationDetails.byRule.length - 4} more rule(s)
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-
-                          {Array.isArray(routePopupDetails.deviationDetails.timeHints) && routePopupDetails.deviationDetails.timeHints.length > 0 ? (
-                            <div style={{ marginTop: 8 }}>
-                              <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)" }}>
-                                Time hints
-                              </div>
-                              <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
-                                {routePopupDetails.deviationDetails.timeHints.slice(0, 3).map((h, idx) => (
-                                  <div key={`${h.label}_${idx}`} className="mini">
-                                    {h.label}: <strong>{h.value}</strong>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <>
-                          <hr className="hr" style={{ margin: "10px 0" }} />
-                          <div className="mini">
-                            Deviation details: <strong>None detected</strong>
-                          </div>
-                        </>
-                      )}
-
-                      {Array.isArray(routePopupDetails.comments) && routePopupDetails.comments.length > 0 ? (
-                        <>
-                          <hr className="hr" style={{ margin: "10px 0" }} />
-                          <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Engineer comments / reasons</div>
-                          <div style={{ display: "grid", gap: 6 }}>
-                            {routePopupDetails.comments.slice(0, 4).map((c) => (
-                              <div
-                                key={c.id}
-                                style={{
-                                  padding: "6px 8px",
-                                  border: "1px solid var(--ocean-border)",
-                                  borderRadius: 10,
-                                  background: "rgba(255,255,255,0.70)",
-                                }}
-                              >
-                                <div
-                                  className="mini"
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "baseline",
-                                    justifyContent: "space-between",
-                                    gap: 10,
-                                    lineHeight: 1.2,
-                                    color: "var(--ocean-muted)",
-                                  }}
-                                >
-                                  <span style={{ fontWeight: 900, color: "var(--ocean-text)" }}>{c.engineerName || "Engineer"}</span>
-                                  <span style={{ whiteSpace: "nowrap" }}>{c.timestampLabel || "—"}</span>
-                                </div>
-
-                                <div className="mini" style={{ marginTop: 4, lineHeight: 1.25 }}>
-                                  <strong style={{ textTransform: "capitalize" }}>
-                                    {String(c.type || "").replaceAll("_", " ").trim()}:
-                                  </strong>{" "}
-                                  {c.text}
-                                </div>
-                              </div>
-                            ))}
-                            {routePopupDetails.comments.length > 4 ? (
-                              <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                                +{routePopupDetails.comments.length - 4} more
-                              </div>
-                            ) : null}
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                </Popup>
-              ) : null}
+              {/* Leaflet inline popup intentionally removed; replaced by app-level modal to avoid map shrinking. */}
 
               {waypointLayers.map((layer) => {
                 const isSelected = selectedRouteId ? layer.routeId === selectedRouteId : false;
@@ -1503,6 +1278,256 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 ) : null}
               </div>
             </div>
+
+            <Modal
+              open={Boolean(routeDetailsModalRouteId && routePopupDetails)}
+              title={`Route Details — ${routePopupDetails?.routeName || ""}`}
+              description="Expanded route completion, deviation, and engineer notes (updates on refresh)."
+              onClose={() => setRouteDetailsModalRouteId("")}
+              maxWidth={1080}
+              footer={
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button className="btn btnGhost" onClick={() => setRouteDetailsModalRouteId("")}>
+                    Close
+                  </button>
+                </div>
+              }
+            >
+              {routePopupDetails ? (
+                <div aria-label="Route details content">
+                  {/* Accessibility: provide ids for aria-labelledby/aria-describedby via in-body headings. */}
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 260 }}>
+                      <div id="routeDetailsTitle" style={{ fontWeight: 900, fontSize: 14, color: "var(--ocean-text)" }}>
+                        {routePopupDetails.routeName}
+                      </div>
+                      <div id="routeDetailsDesc" className="mini" style={{ marginTop: 4, color: "var(--ocean-muted)" }}>
+                        Route ID: <strong>{routePopupDetails.routeId}</strong>
+                      </div>
+                    </div>
+
+                    <span
+                      className={
+                        routePopupDetails.strictStatus === "Completed"
+                          ? "badge badgeSuccess"
+                          : routePopupDetails.strictStatus === "In progress"
+                            ? "badge badgeWarn"
+                            : "badge badgeError"
+                      }
+                      aria-label={`Strict completion status: ${routePopupDetails.strictStatus}`}
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {routePopupDetails.strictStatus}
+                    </span>
+                  </div>
+
+                  <hr className="hr" />
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                      gap: 12,
+                      alignItems: "start",
+                    }}
+                  >
+                    {/* Left: Completion + assignment */}
+                    <section
+                      aria-label="Route completion summary"
+                      style={{
+                        padding: "10px 12px",
+                        border: "1px solid var(--ocean-border)",
+                        borderRadius: 12,
+                        background: "rgba(255,255,255,0.72)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Completion</div>
+                      <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+                        <div className="mini">
+                          Region: <strong>{fmtOrDash(routePopupDetails.regionName)}</strong>
+                        </div>
+                        <div className="mini">
+                          Assigned manager: <strong>{fmtOrDash(routePopupDetails.managerName)}</strong>
+                        </div>
+
+                        <div className="mini">
+                          Assigned engineer(s):{" "}
+                          <strong>
+                            {Array.isArray(routePopupDetails.assignedEngineers) && routePopupDetails.assignedEngineers.length > 0
+                              ? routePopupDetails.assignedEngineers.map((e) => e.name || e.id).join(", ")
+                              : "Unassigned"}
+                          </strong>
+                        </div>
+
+                        <hr className="hr" style={{ margin: "6px 0" }} />
+
+                        <div className="mini">
+                          Waypoints covered:{" "}
+                          <strong>
+                            {routePopupDetails.waypointsCovered}/{routePopupDetails.totalWaypoints}
+                          </strong>
+                        </div>
+
+                        <div className="mini">
+                          Tasks completed:{" "}
+                          <strong>
+                            {routePopupDetails.tasksCompleted}/{routePopupDetails.totalTasks}
+                          </strong>
+                        </div>
+
+                        <div className="mini">
+                          Overall route completion: <strong>{Math.round(routePopupDetails.completionPercent)}%</strong>
+                        </div>
+
+                        <div className="mini" style={{ marginTop: 2, color: "var(--ocean-muted)" }}>
+                          Strict completion requires <strong>all waypoints covered</strong> and <strong>all tasks completed</strong>.
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* Right: Deviation details */}
+                    <section
+                      aria-label="Deviation details"
+                      style={{
+                        padding: "10px 12px",
+                        border: "1px solid var(--ocean-border)",
+                        borderRadius: 12,
+                        background: "rgba(255,255,255,0.72)",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Deviation details</div>
+                        <span
+                          className={
+                            routePopupDetails.deviationDetails?.totalFlags
+                              ? String(routePopupDetails.deviationDetails.worstSeverity).toLowerCase() === "high"
+                                ? "badge badgeError"
+                                : String(routePopupDetails.deviationDetails.worstSeverity).toLowerCase() === "medium"
+                                  ? "badge badgeWarn"
+                                  : "badge"
+                              : "badge"
+                          }
+                          style={{ whiteSpace: "nowrap" }}
+                          aria-label={
+                            routePopupDetails.deviationDetails?.totalFlags
+                              ? `Worst deviation severity: ${routePopupDetails.deviationDetails.worstSeverity || "unknown"}`
+                              : "No deviations detected"
+                          }
+                        >
+                          {routePopupDetails.deviationDetails?.totalFlags
+                            ? (routePopupDetails.deviationDetails.worstSeverity || "—").toUpperCase()
+                            : "NONE"}
+                        </span>
+                      </div>
+
+                      {routePopupDetails.deviationDetails?.totalFlags ? (
+                        <>
+                          <div className="mini" style={{ marginTop: 10 }}>
+                            Total deviation flags: <strong>{routePopupDetails.deviationDetails.totalFlags}</strong>
+                          </div>
+
+                          {Array.isArray(routePopupDetails.deviationEngineerNames) && routePopupDetails.deviationEngineerNames.length > 0 ? (
+                            <div className="mini" style={{ marginTop: 6 }}>
+                              Affected engineer(s):{" "}
+                              <strong>{routePopupDetails.deviationEngineerNames.map((e) => e.name || e.id).join(", ")}</strong>
+                            </div>
+                          ) : null}
+
+                          {Array.isArray(routePopupDetails.deviationDetails.byRule) && routePopupDetails.deviationDetails.byRule.length > 0 ? (
+                            <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+                              {routePopupDetails.deviationDetails.byRule.map((r) => (
+                                <div
+                                  key={r.rule}
+                                  style={{
+                                    padding: "8px 10px",
+                                    border: "1px solid var(--ocean-border)",
+                                    borderRadius: 12,
+                                    background: "rgba(255,255,255,0.70)",
+                                  }}
+                                >
+                                  <div className="mini" style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                    <span style={{ fontWeight: 900, color: "var(--ocean-text)" }}>{r.ruleLabel}</span>
+                                    <span style={{ whiteSpace: "nowrap", color: "var(--ocean-muted)" }}>
+                                      {r.count} · {(r.worstSeverity || "—").toUpperCase()}
+                                    </span>
+                                  </div>
+                                  {r.sampleMessage ? (
+                                    <div className="mini" style={{ marginTop: 6, lineHeight: 1.25, color: "var(--ocean-muted)" }}>
+                                      {r.sampleMessage}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {Array.isArray(routePopupDetails.deviationDetails.timeHints) && routePopupDetails.deviationDetails.timeHints.length > 0 ? (
+                            <div style={{ marginTop: 12 }}>
+                              <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)" }}>
+                                Timing hints
+                              </div>
+                              <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
+                                {routePopupDetails.deviationDetails.timeHints.map((h, idx) => (
+                                  <div key={`${h.label}_${idx}`} className="mini">
+                                    {h.label}: <strong>{h.value}</strong>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div className="mini" style={{ marginTop: 10 }}>
+                          Deviation details: <strong>None detected</strong>
+                        </div>
+                      )}
+                    </section>
+                  </div>
+
+                  {/* Comments */}
+                  {Array.isArray(routePopupDetails.comments) && routePopupDetails.comments.length > 0 ? (
+                    <>
+                      <hr className="hr" />
+                      <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Engineer comments / reasons</div>
+                      <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                        {routePopupDetails.comments.map((c) => (
+                          <div
+                            key={c.id}
+                            style={{
+                              padding: "10px 12px",
+                              border: "1px solid var(--ocean-border)",
+                              borderRadius: 12,
+                              background: "rgba(255,255,255,0.70)",
+                            }}
+                          >
+                            <div
+                              className="mini"
+                              style={{
+                                display: "flex",
+                                alignItems: "baseline",
+                                justifyContent: "space-between",
+                                gap: 10,
+                                lineHeight: 1.2,
+                                color: "var(--ocean-muted)",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span style={{ fontWeight: 900, color: "var(--ocean-text)" }}>{c.engineerName || "Engineer"}</span>
+                              <span style={{ whiteSpace: "nowrap" }}>{c.timestampLabel || "—"}</span>
+                            </div>
+
+                            <div className="mini" style={{ marginTop: 6, lineHeight: 1.35 }}>
+                              <strong style={{ textTransform: "capitalize" }}>{String(c.type || "").replaceAll("_", " ").trim()}:</strong>{" "}
+                              {c.text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </Modal>
           </>
         )}
       </div>
@@ -1518,7 +1543,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
           className="btn btnGhost"
           onClick={() => {
             onSelectRouteId?.("");
-            setRoutePopup(null);
+            setRouteDetailsModalRouteId("");
           }}
           disabled={!selectedRouteId}
         >
