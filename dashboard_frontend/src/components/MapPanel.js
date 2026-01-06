@@ -1779,7 +1779,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <Marker
                     key={`eng_${engineerId}`}
                     position={[loc.lat, loc.lng]}
-                    icon={engineerDefaultIcon}
+                    icon={engineerAvatarIcon}
                     opacity={opacity}
                     interactive
                   >
@@ -1944,7 +1944,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: "#0F766E", display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
                   <span>
-                    Engineer: <strong>E pin</strong> (live position)
+                    Engineer: <strong>Avatar</strong> (live position)
                   </span>
                 </div>
 
