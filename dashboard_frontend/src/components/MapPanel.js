@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import {
   computeRouteCompletionCriteriaForRoute,
   createLruCache,
+  selectDeviationDetailsForRoute,
   selectEngineerIdsForRoute,
   selectEngineerNameById,
   selectRouteCommentsWithMetaForDate,
@@ -803,12 +804,23 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         ? "In progress"
         : "Not completed";
 
+    // Engineer "reasons/comments" section already comes from task history + task exception reasons.
     const comments = selectRouteCommentsWithMetaForDate(scopedState, { routeId: route.id });
 
     const assignedEngineerIds = selectEngineerIdsForRoute(scopedState, route.id);
     const assignedEngineers = assignedEngineerIds
       .map((id) => ({ id, name: selectEngineerNameById(scopedState, id) }))
       .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
+    // New: deviation aggregation for this route (from compliance snapshot flags).
+    const deviationDetails = selectDeviationDetailsForRoute(scopedState, complianceSnapshot, { routeId: route.id });
+
+    const deviationEngineerNames =
+      deviationDetails?.engineerIds?.length > 0
+        ? deviationDetails.engineerIds
+            .map((id) => ({ id, name: selectEngineerNameById(scopedState, id) }))
+            .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)))
+        : [];
 
     return {
       routeId: route.id,
@@ -822,9 +834,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       tasksCompleted: Number(criteria?.completedTasks ?? 0),
       strictStatus,
       completionPercent,
+
+      deviationDetails,
+      deviationEngineerNames,
+
       comments,
     };
-  }, [routePopup, routesInRegion, scopedState]);
+  }, [routePopup, routesInRegion, scopedState, complianceSnapshot]);
 
   const routeLegendRows = useMemo(() => {
     return (routesInRegion || [])
@@ -1217,10 +1233,98 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         Strict completion requires <strong>all waypoints covered</strong> and <strong>all tasks completed</strong>.
                       </div>
 
+                      {routePopupDetails.deviationDetails?.totalFlags ? (
+                        <>
+                          <hr className="hr" style={{ margin: "10px 0" }} />
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                            <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Deviation details</div>
+                            <span
+                              className={
+                                String(routePopupDetails.deviationDetails.worstSeverity).toLowerCase() === "high"
+                                  ? "badge badgeError"
+                                  : String(routePopupDetails.deviationDetails.worstSeverity).toLowerCase() === "medium"
+                                    ? "badge badgeWarn"
+                                    : "badge"
+                              }
+                              style={{ whiteSpace: "nowrap" }}
+                              aria-label={`Worst deviation severity: ${routePopupDetails.deviationDetails.worstSeverity || "unknown"}`}
+                            >
+                              {(routePopupDetails.deviationDetails.worstSeverity || "—").toUpperCase()}
+                            </span>
+                          </div>
+
+                          <div className="mini" style={{ marginTop: 6 }}>
+                            Total deviation flags: <strong>{routePopupDetails.deviationDetails.totalFlags}</strong>
+                          </div>
+
+                          {Array.isArray(routePopupDetails.deviationEngineerNames) && routePopupDetails.deviationEngineerNames.length > 0 ? (
+                            <div className="mini" style={{ marginTop: 6 }}>
+                              Affected engineer(s):{" "}
+                              <strong>{routePopupDetails.deviationEngineerNames.map((e) => e.name || e.id).join(", ")}</strong>
+                            </div>
+                          ) : null}
+
+                          {Array.isArray(routePopupDetails.deviationDetails.byRule) && routePopupDetails.deviationDetails.byRule.length > 0 ? (
+                            <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                              {routePopupDetails.deviationDetails.byRule.slice(0, 4).map((r) => (
+                                <div
+                                  key={r.rule}
+                                  style={{
+                                    padding: "6px 8px",
+                                    border: "1px solid var(--ocean-border)",
+                                    borderRadius: 10,
+                                    background: "rgba(255,255,255,0.70)",
+                                  }}
+                                >
+                                  <div className="mini" style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                    <span style={{ fontWeight: 900, color: "var(--ocean-text)" }}>{r.ruleLabel}</span>
+                                    <span style={{ whiteSpace: "nowrap", color: "var(--ocean-muted)" }}>
+                                      {r.count} · {(r.worstSeverity || "—").toUpperCase()}
+                                    </span>
+                                  </div>
+                                  {r.sampleMessage ? (
+                                    <div className="mini" style={{ marginTop: 4, lineHeight: 1.25, color: "var(--ocean-muted)" }}>
+                                      {r.sampleMessage}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                              {routePopupDetails.deviationDetails.byRule.length > 4 ? (
+                                <div className="mini" style={{ color: "var(--ocean-muted)" }}>
+                                  +{routePopupDetails.deviationDetails.byRule.length - 4} more rule(s)
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+
+                          {Array.isArray(routePopupDetails.deviationDetails.timeHints) && routePopupDetails.deviationDetails.timeHints.length > 0 ? (
+                            <div style={{ marginTop: 8 }}>
+                              <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)" }}>
+                                Time hints
+                              </div>
+                              <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
+                                {routePopupDetails.deviationDetails.timeHints.slice(0, 3).map((h, idx) => (
+                                  <div key={`${h.label}_${idx}`} className="mini">
+                                    {h.label}: <strong>{h.value}</strong>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <hr className="hr" style={{ margin: "10px 0" }} />
+                          <div className="mini">
+                            Deviation details: <strong>None detected</strong>
+                          </div>
+                        </>
+                      )}
+
                       {Array.isArray(routePopupDetails.comments) && routePopupDetails.comments.length > 0 ? (
                         <>
                           <hr className="hr" style={{ margin: "10px 0" }} />
-                          <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Comments</div>
+                          <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Engineer comments / reasons</div>
                           <div style={{ display: "grid", gap: 6 }}>
                             {routePopupDetails.comments.slice(0, 4).map((c) => (
                               <div

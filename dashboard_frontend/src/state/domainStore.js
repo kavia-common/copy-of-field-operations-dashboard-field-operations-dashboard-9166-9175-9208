@@ -9,6 +9,13 @@ import {
   users,
 } from "../data/dummyData";
 
+/**
+ * NOTE:
+ * Domain selectors in this file are used across the app.
+ * The "deviation details" below intentionally accept the current compliance snapshot (from state/compliance.js)
+ * so MapPanel can show rich deviation info without needing to import compliance.js (keeps layering clean).
+ */
+
 const STORAGE_KEY = "fod_domain_v1";
 
 function deepClone(obj) {
@@ -1331,6 +1338,132 @@ export function selectRouteCommentsWithMetaForDate(scopedState, { routeId, dateI
       timestampLabel,
     };
   });
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Formats a duration window between 2 ISO timestamps into a compact string.
+ *
+ * Example: "08:10 → 09:35 (85 min)"
+ */
+function formatIsoWindowShort(fromIso, toIso) {
+  const a = fromIso ? new Date(fromIso) : null;
+  const b = toIso ? new Date(toIso) : null;
+  if (!a || !b || !Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return "";
+  const mins = Math.round((b.getTime() - a.getTime()) / 60000);
+  const fmt = (d) => {
+    try {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      const iso = d.toISOString();
+      return iso.slice(11, 16);
+    }
+  };
+  return `${fmt(a)} → ${fmt(b)} (${Number.isFinite(mins) ? mins : "—"} min)`;
+}
+
+function severityRank(sev) {
+  const rank = { high: 3, medium: 2, low: 1 };
+  return rank[String(sev || "").toLowerCase()] || 0;
+}
+
+function titleCaseRule(rule) {
+  return String(rule || "").replaceAll("_", " ").trim();
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Computes deviation (non-compliance) details for a specific route from a compliance snapshot.
+ *
+ * The compliance snapshot shape comes from src/state/compliance.js and includes flags:
+ *  - { id, date, engineerId, routeId, rule, severity, message, meta }
+ *
+ * Returned shape is designed for MapPanel route popup:
+ *  - totalFlags, worstSeverity, byRule[]
+ *  - engineerIds involved
+ *  - timeHints[] extracted from meta fields when present (idle windows, start/end breaches, etc.)
+ */
+ // PUBLIC_INTERFACE
+export function selectDeviationDetailsForRoute(scopedState, complianceSnapshot, { routeId, dateIso } = {}) {
+  /** Builds aggregated deviation details for a route (counts, worst severity, rule breakdown, time hints). */
+  const rid = routeId || "";
+  if (!rid) return null;
+
+  const day = (dateIso || complianceSnapshot?.date || new Date().toISOString()).slice(0, 10);
+  const flags = (complianceSnapshot?.flags || []).filter((f) => f?.routeId === rid && String(f?.date || "").slice(0, 10) === day);
+
+  if (!flags.length) {
+    return {
+      date: day,
+      routeId: rid,
+      totalFlags: 0,
+      worstSeverity: "",
+      byRule: [],
+      engineerIds: [],
+      timeHints: [],
+    };
+  }
+
+  // Count by rule + track worst severity.
+  const byRuleMap = new Map();
+  let worst = "";
+  const engineerIdsSet = new Set();
+
+  flags.forEach((f) => {
+    worst = severityRank(f.severity) > severityRank(worst) ? f.severity : worst;
+    if (f.engineerId) engineerIdsSet.add(f.engineerId);
+
+    const key = String(f.rule || "");
+    if (!byRuleMap.has(key)) {
+      byRuleMap.set(key, { rule: key, ruleLabel: titleCaseRule(key), count: 0, worstSeverity: "", sampleMessage: "" });
+    }
+    const row = byRuleMap.get(key);
+    row.count += 1;
+    row.worstSeverity = severityRank(f.severity) > severityRank(row.worstSeverity) ? f.severity : row.worstSeverity;
+    if (!row.sampleMessage && f.message) row.sampleMessage = f.message;
+  });
+
+  const byRule = Array.from(byRuleMap.values()).sort(
+    (a, b) => severityRank(b.worstSeverity) - severityRank(a.worstSeverity) || b.count - a.count || a.ruleLabel.localeCompare(b.ruleLabel)
+  );
+
+  // Extract compact time hints from meta if available.
+  const timeHints = [];
+  flags.forEach((f) => {
+    const meta = f?.meta || {};
+    if (meta.fromTimestamp && meta.toTimestamp) {
+      const s = formatIsoWindowShort(meta.fromTimestamp, meta.toTimestamp);
+      if (s) timeHints.push({ kind: "window", label: "Idle window", value: s, rule: f.rule, severity: f.severity });
+    }
+    if (meta.actualStart && meta.plannedStart) {
+      const s = formatIsoWindowShort(meta.plannedStart, meta.actualStart);
+      if (s) timeHints.push({ kind: "window", label: "Planned → actual start", value: s, rule: f.rule, severity: f.severity });
+    }
+    if (meta.actualEnd && meta.plannedEnd) {
+      const s = formatIsoWindowShort(meta.plannedEnd, meta.actualEnd);
+      if (s) timeHints.push({ kind: "window", label: "Planned → actual end", value: s, rule: f.rule, severity: f.severity });
+    }
+  });
+
+  // De-dupe time hints (same label+value)
+  const seenHint = new Set();
+  const dedupedTimeHints = [];
+  timeHints.forEach((h) => {
+    const k = `${h.label}::${h.value}`;
+    if (seenHint.has(k)) return;
+    seenHint.add(k);
+    dedupedTimeHints.push(h);
+  });
+
+  return {
+    date: day,
+    routeId: rid,
+    totalFlags: flags.length,
+    worstSeverity: worst,
+    byRule,
+    engineerIds: Array.from(engineerIdsSet),
+    timeHints: dedupedTimeHints.slice(0, 4),
+  };
 }
 
 /**
