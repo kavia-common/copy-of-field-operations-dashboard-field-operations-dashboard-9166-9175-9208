@@ -88,6 +88,91 @@ export function computeRouteCompletionCriteriaForRoute(route, tasksList) {
   };
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Creates a stable hash string for a set of route waypoints.
+ *
+ * Input format:
+ *  - waypoints: Array of [lon, lat] pairs OR objects like { lng, lat }.
+ *
+ * Hash strategy:
+ *  - Round to 5 decimals (≈ 1.1m precision) to avoid noise.
+ *  - Join as "lon,lat;lon,lat;..." string.
+ *
+ * Used by MapPanel to cache OSRM snapped route polylines and avoid repeated requests.
+ */
+export function stableWaypointsHash(waypoints, { decimals = 5 } = {}) {
+  const d = Number.isFinite(decimals) ? decimals : 5;
+  const round = (n) => {
+    if (!Number.isFinite(n)) return "";
+    // toFixed returns a string; we normalize "-0.00000" to "0.00000"
+    const s = Number(n).toFixed(d);
+    return s === "-0.00000" ? "0.00000" : s;
+  };
+
+  const parts = (waypoints || [])
+    .map((p) => {
+      const lon = Array.isArray(p) ? p[0] : p?.lng;
+      const lat = Array.isArray(p) ? p[1] : p?.lat;
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return "";
+      return `${round(lon)},${round(lat)}`;
+    })
+    .filter(Boolean);
+
+  return parts.join(";");
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Creates a small in-memory LRU cache for session-only use.
+ *
+ * Notes:
+ * - This cache is intentionally NOT persisted to localStorage, to avoid unbounded growth.
+ * - Suitable for caching OSRM route responses (decoded polyline lat/lngs).
+ */
+export function createLruCache(maxEntries = 100) {
+  const max = Math.max(1, Number(maxEntries) || 100);
+  const map = new Map();
+
+  return {
+    /** Gets a cached value and marks it as most-recently-used. */
+    get(key) {
+      if (!map.has(key)) return undefined;
+      const v = map.get(key);
+      map.delete(key);
+      map.set(key, v);
+      return v;
+    },
+
+    /** Sets a cached value and evicts least-recently-used entries beyond max. */
+    set(key, value) {
+      if (!key) return;
+      if (map.has(key)) map.delete(key);
+      map.set(key, value);
+
+      while (map.size > max) {
+        const oldest = map.keys().next().value;
+        map.delete(oldest);
+      }
+    },
+
+    /** Returns true if key exists (does not update recency). */
+    has(key) {
+      return map.has(key);
+    },
+
+    /** Clears cache. */
+    clear() {
+      map.clear();
+    },
+
+    /** Current size (debugging/diagnostics). */
+    size() {
+      return map.size;
+    },
+  };
+}
+
 function getDefaultState() {
   return {
     regions: deepClone(regions),

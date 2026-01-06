@@ -2,7 +2,7 @@ import React, { useMemo, useRef } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { createPortal } from "react-dom";
-import { computeRouteCompletionCriteriaForRoute } from "../state/domainStore";
+import { computeRouteCompletionCriteriaForRoute, createLruCache, stableWaypointsHash } from "../state/domainStore";
 
 // Optional plugin: fullscreen control (adds L.control.fullscreen)
 import "leaflet.fullscreen";
@@ -112,6 +112,179 @@ const ROUTE_HALO = {
   color: "#0b1a3a",
   opacity: 0.4,
 };
+
+/**
+ * OSRM demo server settings.
+ * - Public endpoint, no API keys.
+ * - IMPORTANT: treat as best-effort; handle errors/rate limits gracefully.
+ */
+const OSRM_BASE_URL = "https://router.project-osrm.org";
+
+/**
+ * Decodes an OSRM polyline6 string into an array of [lat, lng] pairs.
+ * Polyline6 uses 1e-6 precision.
+ *
+ * Adapted from the standard polyline algorithm (Google Encoded Polyline) with precision 6.
+ */
+function decodePolyline6(str) {
+  if (!str || typeof str !== "string") return [];
+  let index = 0;
+  const len = str.length;
+  let lat = 0;
+  let lng = 0;
+  const coordinates = [];
+
+  while (index < len) {
+    let b;
+    let shift = 0;
+    let result = 0;
+
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20 && index < len);
+
+    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20 && index < len);
+
+    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
+    lng += dlng;
+
+    coordinates.push([lat / 1e6, lng / 1e6]);
+  }
+
+  return coordinates;
+}
+
+function toLonLatWaypointsFromRoutePolyline(routePolyline = []) {
+  // Route polylines in dummy data are [{lat,lng}, ...]
+  return (routePolyline || [])
+    .filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng))
+    .map((p) => [p.lng, p.lat]);
+}
+
+function stableRouteCacheKey(routeId, waypointsHash) {
+  return `${routeId || "route"}::${waypointsHash || ""}`;
+}
+
+/**
+ * Builds OSRM route URL for an array of [lon,lat] waypoints.
+ * Uses polyline6 geometry for smaller payloads.
+ */
+function buildOsrmRouteUrl(waypointsLonLat) {
+  const coords = (waypointsLonLat || []).map((p) => `${p[0]},${p[1]}`).join(";");
+  const u = new URL(`${OSRM_BASE_URL}/route/v1/driving/${coords}`);
+  u.searchParams.set("overview", "full");
+  u.searchParams.set("geometries", "polyline6");
+  u.searchParams.set("annotations", "duration,distance");
+  return u.toString();
+}
+
+/**
+ * Best-effort OSRM call. Returns:
+ *  - { ok: true, latLngs, distance, duration, source: 'osrm' }
+ *  - { ok: false, error }
+ */
+async function fetchOsrmSnappedRoute(waypointsLonLat, { signal } = {}) {
+  if (!Array.isArray(waypointsLonLat) || waypointsLonLat.length < 2) {
+    return { ok: false, error: "Need at least 2 waypoints." };
+  }
+
+  // OSRM demo server accepts long waypoint lists, but keep it conservative.
+  if (waypointsLonLat.length > 50) {
+    return { ok: false, error: "Too many waypoints for demo routing." };
+  }
+
+  const url = buildOsrmRouteUrl(waypointsLonLat);
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      signal,
+      headers: {
+        // A tiny hint; some public endpoints may apply fair-use policies.
+        Accept: "application/json",
+      },
+    });
+
+    // OSRM demo server rate-limit may show as 429 or upstream gateway errors.
+    if (!res.ok) {
+      const status = res.status;
+      return { ok: false, error: `OSRM HTTP ${status}` };
+    }
+
+    const json = await res.json();
+    const route = json?.routes?.[0];
+    const geom = route?.geometry;
+    if (!geom) return { ok: false, error: "OSRM response missing geometry." };
+
+    const latLngs = decodePolyline6(geom);
+    if (!latLngs || latLngs.length < 2) return { ok: false, error: "Decoded route too short." };
+
+    return {
+      ok: true,
+      latLngs,
+      distance: Number(route?.distance || 0),
+      duration: Number(route?.duration || 0),
+      source: "osrm",
+    };
+  } catch (e) {
+    if (e?.name === "AbortError") return { ok: false, error: "aborted" };
+    return { ok: false, error: e?.message || "Network error" };
+  }
+}
+
+/**
+ * Small concurrency-limited async queue for OSRM requests to avoid spamming the demo server.
+ * Session-scoped and created once per MapPanel instance.
+ */
+function createConcurrencyLimiter(maxConcurrent = 2) {
+  const max = Math.max(1, Number(maxConcurrent) || 2);
+  let inFlight = 0;
+  const queue = [];
+
+  const runNext = () => {
+    if (inFlight >= max) return;
+    const item = queue.shift();
+    if (!item) return;
+
+    inFlight += 1;
+    const { fn, resolve } = item;
+
+    Promise.resolve()
+      .then(fn)
+      .then((v) => resolve(v))
+      .catch((err) => resolve({ ok: false, error: err?.message || "error" }))
+      .finally(() => {
+        inFlight -= 1;
+        runNext();
+      });
+  };
+
+  return (fn) =>
+    new Promise((resolve) => {
+      queue.push({ fn, resolve });
+      runNext();
+    });
+}
+
+function debounce(fn, waitMs) {
+  let t = null;
+  return (...args) => {
+    if (t) window.clearTimeout(t);
+    t = window.setTimeout(() => fn(...args), waitMs);
+  };
+}
 
 /**
  * Returns a zoom-aware stroke weight, but never below the requested min.
@@ -449,6 +622,20 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   const markerRefs = useRef(new Map());
   const [mapZoom, setMapZoom] = React.useState(12);
 
+  // OSRM snap cache + inflight tracking:
+  // - cache persists for the session (component lifetime)
+  // - inflight map avoids duplicate requests for the same route+waypoints
+  const osrmCacheRef = useRef(null);
+  const osrmLimiterRef = useRef(null);
+  const osrmInflightRef = useRef(new Map());
+  const osrmAbortRef = useRef(new Map());
+  const [snappedByKey, setSnappedByKey] = React.useState(() => ({}));
+  const [snapStatusByKey, setSnapStatusByKey] = React.useState(() => ({})); // pending|ok|error
+  const [anyOsrmUsed, setAnyOsrmUsed] = React.useState(false);
+
+  if (!osrmCacheRef.current) osrmCacheRef.current = createLruCache(100);
+  if (!osrmLimiterRef.current) osrmLimiterRef.current = createConcurrencyLimiter(2);
+
   const activeRoutes = useMemo(() => {
     if (!scopedState) return [];
     return scopedState.routes || [];
@@ -486,6 +673,85 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     return m;
   }, [activeRoutes]);
 
+  const routesWaypointMeta = useMemo(() => {
+    // For OSRM: build stable hashes based on route waypoints ([lon,lat]).
+    // We intentionally only re-fetch when the hash changes (not every 30s refresh unless waypoints moved).
+    return (activeRoutes || [])
+      .map((r) => {
+        const waypoints = toLonLatWaypointsFromRoutePolyline(r.polyline || []);
+        const hash = stableWaypointsHash(waypoints, { decimals: 5 });
+        const key = stableRouteCacheKey(r.id, hash);
+        return { routeId: r.id, hash, key, waypoints };
+      })
+      .filter((x) => x.waypoints.length >= 2);
+  }, [activeRoutes]);
+
+  const routesWaypointMetaByRouteId = useMemo(() => {
+    const m = new Map();
+    routesWaypointMeta.forEach((x) => m.set(x.routeId, x));
+    return m;
+  }, [routesWaypointMeta]);
+
+  // Debounced fetch scheduler; recreated when route set changes (safe and small).
+  const scheduleOsrmFetch = useMemo(() => {
+    return debounce(async (items) => {
+      const cache = osrmCacheRef.current;
+      const limit = osrmLimiterRef.current;
+
+      const tasks = (items || []).map((it) =>
+        limit(async () => {
+          const { key, routeId, waypoints } = it;
+
+          // Cache hit: populate local state if missing.
+          const cached = cache.get(key);
+          if (cached?.latLngs?.length >= 2) {
+            setSnappedByKey((prev) => (prev[key] ? prev : { ...prev, [key]: cached }));
+            setSnapStatusByKey((prev) => (prev[key] ? prev : { ...prev, [key]: "ok" }));
+            setAnyOsrmUsed(true);
+            return { ok: true, cached: true };
+          }
+
+          // Avoid duplicate in-flight calls.
+          if (osrmInflightRef.current.has(key)) return { ok: true, inflight: true };
+
+          setSnapStatusByKey((prev) => ({ ...prev, [key]: "pending" }));
+          osrmInflightRef.current.set(key, true);
+
+          // Abort previous same-key (shouldn't exist if inflight map is correct, but safe).
+          try {
+            const prevCtl = osrmAbortRef.current.get(key);
+            if (prevCtl) prevCtl.abort();
+          } catch {
+            // no-op
+          }
+
+          const ctl = new AbortController();
+          osrmAbortRef.current.set(key, ctl);
+
+          const result = await fetchOsrmSnappedRoute(waypoints, { signal: ctl.signal });
+
+          osrmInflightRef.current.delete(key);
+
+          if (result.ok) {
+            const payload = { latLngs: result.latLngs, distance: result.distance, duration: result.duration, source: "osrm" };
+            cache.set(key, payload);
+            setSnappedByKey((prev) => ({ ...prev, [key]: payload }));
+            setSnapStatusByKey((prev) => ({ ...prev, [key]: "ok" }));
+            setAnyOsrmUsed(true);
+            return { ok: true };
+          }
+
+          // Error: keep dummy rendering; mark error but don't break.
+          setSnapStatusByKey((prev) => ({ ...prev, [key]: "error" }));
+          return { ok: false, error: result.error };
+        })
+      );
+
+      // Wait for completion (best-effort). We don't throw; each task resolves.
+      await Promise.all(tasks);
+    }, 450);
+  }, []);
+
   const engineerAssignmentsByEngineerId = useMemo(() => {
     const m = new Map();
     (assignments || []).forEach((a) => m.set(a.engineerId, a.routeId));
@@ -494,21 +760,28 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
   const engineerRouteOverlays = useMemo(() => {
     // Build a per-engineer overlay polyline for their assigned route.
-    // This allows users to see each engineer's “intended route” and ties the marker to a route context.
+    // If OSRM snapped geometry exists for the assigned route, use it so overlays match the base route.
     return (activeLocations || [])
       .map((loc) => {
         const routeId = engineerAssignmentsByEngineerId.get(loc.engineerId);
         const route = routeId ? routeById.get(routeId) : null;
-        const positions = toLatLngs(route?.polyline || []);
+
+        const waypointMeta = route?.id ? routesWaypointMetaByRouteId.get(route.id) : null;
+        const snapKey = waypointMeta?.key || "";
+        const snapped = snapKey ? snappedByKey?.[snapKey] || osrmCacheRef.current.get(snapKey) : null;
+
+        const positions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : toLatLngs(route?.polyline || []);
+
         return {
           engineerId: loc.engineerId,
           routeId: route?.id || "",
           routeName: route?.name || "",
           positions,
+          snapKey,
         };
       })
       .filter((x) => x.positions.length >= 2);
-  }, [activeLocations, engineerAssignmentsByEngineerId, routeById]);
+  }, [activeLocations, engineerAssignmentsByEngineerId, routeById, routesWaypointMetaByRouteId, snappedByKey]);
 
   const waypointLayers = useMemo(() => {
     // Waypoints are the polyline vertices (for this dummy app).
@@ -593,6 +866,49 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     ];
   }, []);
 
+  // Fetch snapped OSRM geometries when route waypoint hashes change.
+  React.useEffect(() => {
+    const list = routesWaypointMeta || [];
+    if (list.length === 0) return;
+
+    // Determine which keys need fetching.
+    const cache = osrmCacheRef.current;
+    const toFetch = [];
+
+    list.forEach((it) => {
+      const cached = cache.get(it.key);
+      const alreadyInState = snappedByKey[it.key];
+      if (cached?.latLngs?.length >= 2 || alreadyInState?.latLngs?.length >= 2) {
+        // Ensure status is ok for cached entries (may be missing on first render).
+        setSnapStatusByKey((prev) => (prev[it.key] ? prev : { ...prev, [it.key]: "ok" }));
+        return;
+      }
+
+      // If previously errored, we still allow retry when hash changes (key changes).
+      toFetch.push(it);
+    });
+
+    if (toFetch.length > 0) scheduleOsrmFetch(toFetch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routesWaypointMeta, scheduleOsrmFetch]);
+
+  React.useEffect(() => {
+    // Cleanup: abort any inflight requests when the map panel unmounts.
+    return () => {
+      try {
+        osrmAbortRef.current.forEach((ctl) => ctl?.abort?.());
+        osrmAbortRef.current.clear();
+      } catch {
+        // no-op
+      }
+      try {
+        osrmInflightRef.current.clear();
+      } catch {
+        // no-op
+      }
+    };
+  }, []);
+
   return (
     <div className="card">
       <div className="cardHeader">
@@ -669,7 +985,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 const completionStatus = routeCompletionStatusById?.[r.id] || "not_completed";
                 const criteria = routeCompletionById?.[r.id] || null;
 
-                const positions = toLatLngs(r.polyline);
+                const waypointMeta = routesWaypointMetaByRouteId.get(r.id);
+                const snapKey = waypointMeta?.key || "";
+                const snapStatus = snapKey ? snapStatusByKey?.[snapKey] : "";
+                const snapped = snapKey ? snappedByKey?.[snapKey] || osrmCacheRef.current.get(snapKey) : null;
+
+                // Prefer OSRM-snapped geometry when available; fallback to dummy polyline.
+                const positions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : toLatLngs(r.polyline);
                 if (positions.length < 2) return null;
 
                 const statusLabel =
@@ -719,6 +1041,21 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             Tasks:{" "}
                             <strong>
                               {criteria.completedTasks}/{criteria.totalTasks} completed
+                            </strong>
+                          </div>
+                        ) : null}
+
+                        {snapKey ? (
+                          <div className="mini">
+                            Routing:{" "}
+                            <strong>
+                              {snapStatus === "pending"
+                                ? "snapping…"
+                                : snapped?.source === "osrm"
+                                  ? "snapped to OSRM"
+                                  : snapStatus === "error"
+                                    ? "fallback (dummy)"
+                                    : "fallback (dummy)"}
                             </strong>
                           </div>
                         ) : null}
@@ -1046,8 +1383,29 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 maxWidth: 320,
               }}
             >
-              <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 8 }}>Route status</div>
-              <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ fontWeight: 900, fontSize: 12 }}>Route status</div>
+
+                {/* Lightweight OSRM status indicator (no new deps) */}
+                {Object.values(snapStatusByKey || {}).some((s) => s === "pending") ? (
+                  <span
+                    className="badge"
+                    style={{
+                      padding: "4px 8px",
+                      fontSize: 11,
+                      background: "rgba(30,58,138,0.08)",
+                      borderColor: "rgba(30,58,138,0.20)",
+                      color: "var(--ocean-primary)",
+                      fontWeight: 900,
+                    }}
+                    aria-label="Routes are being snapped to OSRM"
+                  >
+                    Snapping…
+                  </span>
+                ) : null}
+              </div>
+
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
                 {legend.map((l) => (
                   <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span
@@ -1063,6 +1421,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     <span className="mini">{l.label}</span>
                   </div>
                 ))}
+
+                {anyOsrmUsed ? (
+                  <div className="mini" style={{ marginTop: 6 }}>
+                    <strong>Routes snapped to OSRM</strong>
+                  </div>
+                ) : null}
+
                 <div className="mini" style={{ marginTop: 6 }}>
                   Checkpoints are shown as <strong>small circles</strong>. Each engineer has a thin assigned-route overlay.
                 </div>
