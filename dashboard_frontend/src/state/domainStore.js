@@ -808,7 +808,9 @@ export function computeEngineerAllocationSummary(
   const gpsFlagEngineerIds = new Set(
     (complianceSnapshot?.flags || [])
       .filter((f) => (f.date || "").slice(0, 10) === date)
-      .filter((f) => String(f.rule || "").toLowerCase().includes("gps") || String(f.message || "").toLowerCase().includes("gps"))
+      .filter(
+        (f) => String(f.rule || "").toLowerCase().includes("gps") || String(f.message || "").toLowerCase().includes("gps")
+      )
       .map((f) => f.engineerId)
       .filter(Boolean)
   );
@@ -867,6 +869,63 @@ export function computeEngineerAllocationSummary(
       gpsIssues,
     },
   };
+}
+
+// PUBLIC_INTERFACE
+export function selectEngineerAllocationCounts(scopedState, { dateIso = "" } = {}) {
+  /**
+   * Simplified selector for Engineer Allocation card.
+   *
+   * Returns:
+   *  - totalEngineers: number of field engineers in scope
+   *  - activeCount: on-duty/online engineers (best-effort)
+   *  - inactiveCount: off-duty/offline engineers (best-effort)
+   *
+   * Implementation notes (dummy data):
+   *  - If engineerLiveLocations has an entry for an engineer with valid lat/lng -> treat as "online".
+   *  - If there is an explicit on-duty flag on the user record -> treat as active.
+   *  - If assigned to a route OR has a task due on the selected date -> treat as active.
+   *  - Otherwise inactive.
+   */
+  const date = datePrefixFromIso(dateIso);
+  const engineers = (scopedState?.users || []).filter((u) => u.role === "Field Engineer");
+  const totalEngineers = engineers.length;
+
+  const assignments = scopedState?.engineerAssignments || [];
+  const assignedEngineerIds = new Set(assignments.map((a) => a.engineerId));
+
+  const tasksToday = (scopedState?.tasks || []).filter((t) => (t.dueDate || "").slice(0, 10) === date);
+
+  const locations = scopedState?.engineerLiveLocations || [];
+  const locByEngineerId = new Map(locations.map((l) => [l.engineerId, l]));
+
+  const isOnline = (engineerId) => {
+    const loc = locByEngineerId.get(engineerId);
+    if (!loc) return false;
+    return isValidLatLng(loc.lat, loc.lng);
+  };
+
+  let activeCount = 0;
+
+  engineers.forEach((e) => {
+    const explicit =
+      e.isOnDuty === true ||
+      e.onDuty === true ||
+      String(e.shiftStatus || "").toLowerCase() === "on_duty" ||
+      String(e.shiftStatus || "").toLowerCase() === "on duty";
+
+    const hasAssignment = assignedEngineerIds.has(e.id);
+    const hasTasksToday = tasksToday.some((t) => t.engineerId === e.id);
+
+    // "Active should represent on-duty/online engineers"
+    const active = explicit || isOnline(e.id) || hasAssignment || hasTasksToday;
+
+    if (active) activeCount += 1;
+  });
+
+  const inactiveCount = Math.max(0, totalEngineers - activeCount);
+
+  return { totalEngineers, activeCount, inactiveCount, date };
 }
 
 // PUBLIC_INTERFACE

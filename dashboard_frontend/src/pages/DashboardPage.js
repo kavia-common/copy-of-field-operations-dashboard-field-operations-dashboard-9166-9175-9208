@@ -221,7 +221,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
         {/* 3) Engineer Allocation (metrics per spec) */}
         <section aria-label="Engineer allocation metrics" data-testid="metric-allocation">
-          <EngineerAllocationCard scopedState={scopedState} dateIso={todayIso} complianceSnapshot={complianceSnapshot} />
+          <EngineerAllocationCard scopedState={scopedState} dateIso={todayIso} />
 
           {/* Keep existing drill-down entry points for allocation management */}
           <div className="splitRow" style={{ marginTop: 10 }}>
