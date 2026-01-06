@@ -173,6 +173,29 @@ function plannedRouteStyle({ zoom, color }) {
 }
 
 /**
+ * Creates a filled-looking dashed route using layered polylines.
+ *
+ * Leaflet polylines don't support a true "fill" like polygons. To make the status color
+ * visible as an interior at all zoom levels, we render:
+ *  1) a wide, semi-opaque solid stroke in the status color (acts like a fill body)
+ *  2) a narrower dashed stroke in the same status color (keeps the dashed semantics)
+ *
+ * This keeps performance acceptable (2 polylines per route for the status layer) and
+ * preserves the existing halo/selection/actual/deviation layers.
+ */
+function plannedRouteFillStyle({ zoom, color }) {
+  const base = strokeWeightForZoom(zoom, { min: 5, max: 9 });
+  return {
+    color,
+    weight: base + 6,
+    opacity: 0.28,
+    dashArray: null,
+    lineCap: "round",
+    lineJoin: "round",
+  };
+}
+
+/**
  * Derives a route status used for map styling (former Planned layer).
  * Uses the same strict completion criteria used elsewhere:
  * - Completed: all points covered AND all tasks completed
@@ -1231,6 +1254,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       : STATUS_NOT_STARTED_BLUE;
 
                 const haloStyle = routeHaloStyle({ zoom: mapZoom });
+                const plannedFillStyle = plannedRouteFillStyle({ zoom: mapZoom, color: statusColor });
                 const plannedStyle = plannedRouteStyle({ zoom: mapZoom, color: statusColor });
                 const actualStyle = actualPathStyle({ zoom: mapZoom, color: ACTUAL_BLUE });
                 const deviationStyle = deviationOverlayStyle({ zoom: mapZoom });
@@ -1241,8 +1265,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                 return (
                   <React.Fragment key={`route_stack_${r.id}`}>
-                    {/* Former planned route layer (still dashed), now status-colored + halo */}
+                    {/* Status (former planned) route layer: halo + filled body + dashed stroke */}
                     <Polyline positions={plannedPositions} pathOptions={haloStyle} interactive={false} />
+                    <Polyline positions={plannedPositions} pathOptions={plannedFillStyle} interactive={false} />
 
                     <Polyline
                       positions={plannedPositions}
@@ -1475,10 +1500,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <span
                     aria-hidden="true"
                     style={{
-                      width: 22,
-                      height: 0,
-                      borderTop: `4px dashed ${STATUS_COMPLETED_GREEN}`,
+                      width: 26,
+                      height: 10,
                       display: "inline-block",
+                      borderRadius: 999,
+                      background: `linear-gradient(to bottom, transparent 0%, transparent 30%, color-mix(in srgb, ${STATUS_COMPLETED_GREEN} 28%, transparent) 30%, color-mix(in srgb, ${STATUS_COMPLETED_GREEN} 28%, transparent) 70%, transparent 70%, transparent 100%)`,
+                      borderTop: `4px dashed ${STATUS_COMPLETED_GREEN}`,
                     }}
                   />
                   <span>
@@ -1490,10 +1517,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <span
                     aria-hidden="true"
                     style={{
-                      width: 22,
-                      height: 0,
-                      borderTop: `4px dashed ${STATUS_IN_PROGRESS_YELLOW}`,
+                      width: 26,
+                      height: 10,
                       display: "inline-block",
+                      borderRadius: 999,
+                      background: `linear-gradient(to bottom, transparent 0%, transparent 30%, color-mix(in srgb, ${STATUS_IN_PROGRESS_YELLOW} 28%, transparent) 30%, color-mix(in srgb, ${STATUS_IN_PROGRESS_YELLOW} 28%, transparent) 70%, transparent 70%, transparent 100%)`,
+                      borderTop: `4px dashed ${STATUS_IN_PROGRESS_YELLOW}`,
                     }}
                   />
                   <span>
@@ -1505,10 +1534,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <span
                     aria-hidden="true"
                     style={{
-                      width: 22,
-                      height: 0,
-                      borderTop: `4px dashed ${STATUS_NOT_STARTED_BLUE}`,
+                      width: 26,
+                      height: 10,
                       display: "inline-block",
+                      borderRadius: 999,
+                      background: `linear-gradient(to bottom, transparent 0%, transparent 30%, color-mix(in srgb, ${STATUS_NOT_STARTED_BLUE} 28%, transparent) 30%, color-mix(in srgb, ${STATUS_NOT_STARTED_BLUE} 28%, transparent) 70%, transparent 70%, transparent 100%)`,
+                      borderTop: `4px dashed ${STATUS_NOT_STARTED_BLUE}`,
                     }}
                   />
                   <span>
