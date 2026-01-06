@@ -1297,12 +1297,19 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                 return (
                   <React.Fragment key={`route_stack_${r.id}`}>
-                    {/* Route rendering stack:
-                        1) Halo (contrast) - neutral
-                        2) Status body "fill" - STATUS color
-                        3) Dashed top stroke - encodes Actual vs Deviation (blue/red)
+                    {/* Route rendering stack (IMPORTANT: order matters in Leaflet SVG rendering):
+                        1) Halo (contrast) - neutral (below)
+                        2) Actual path (solid blue) - below status so it doesn't "paint over" the status body
+                        3) Status body "fill" - STATUS color (wide underlay)
+                        4) Dashed top stroke - encodes Actual vs Deviation (blue/red)
+                        5) Deviations overlay segments (solid red) - above
+                        6) Selection highlight - above
                     */}
                     <Polyline positions={plannedPositions} pathOptions={haloStyle} interactive={false} />
+
+                    {/* Actual path (solid blue) must be UNDER the status body so the status color remains visible. */}
+                    {actualPositions.length >= 2 ? <Polyline positions={actualPositions} pathOptions={actualStyle} interactive={false} /> : null}
+
                     <Polyline positions={plannedPositions} pathOptions={plannedFillStyle} interactive={false} />
 
                     <Polyline
@@ -1388,10 +1395,6 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         <div className="mini">Click to select</div>
                       </Tooltip>
                     </Polyline>
-
-                    {/* Preserve existing overlays (kept for clarity and existing behavior): */}
-                    {/* Actual path (solid blue) */}
-                    {actualPositions.length >= 2 ? <Polyline positions={actualPositions} pathOptions={actualStyle} interactive={false} /> : null}
 
                     {/* Deviations overlay (solid red segments, when geometry is available) */}
                     {deviationSegments.length > 0
