@@ -48,7 +48,6 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
   // Dummy refresh controls
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [randomizeEnabled, setRandomizeEnabled] = useState(true);
   const [lastRefreshAt, setLastRefreshAt] = useState(() => getLastRefreshMeta()?.lastRefreshedAt || "");
 
   const allocationSummary = useMemo(
@@ -90,44 +89,16 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     const refresh = () => {
       const prevSnapshot = prevComplianceRef.current;
 
-      const res = runDummyRefreshOnce(fullState, {
-        randomConfig: {
-          // Keep this config small and easy to tweak while demoing.
-          // NOTE: This is the seam where real API polling options will later live.
-          randomizeEnabled,
-          toastChancePerTick: 0.3,
-          deviationChance: 0.15,
-          taskFlipChance: 0.1,
-          progressJitterRange: [1, 4],
-          maxTaskFlipsPerTick: 1,
-        },
-      });
+      const res = runDummyRefreshOnce(fullState);
 
       if (res.ok) {
         setFullState(res.state);
         setLastRefreshAt(res.refreshedAt);
 
-        // Enqueue any random demo alerts (ToastCenter handles windowed de-dupe).
-        if (Array.isArray(res.toastEvents) && res.toastEvents.length) {
-          setToastQueue((q) => [
-            ...res.toastEvents.map((t) => ({
-              id: t.id,
-              dedupeKey: t.dedupeKey,
-              severity: t.severity,
-              title: t.title,
-              subtitle: t.category ? `${String(t.category).toUpperCase()} · ${fmtTime(t.occurredAtIso)}` : fmtTime(t.occurredAtIso),
-              message: t.message,
-              engineerId: t.engineerId,
-              routeId: t.routeId,
-              rule: t.rule,
-            })),
-            ...q,
-          ]);
-        }
-
         // Compute next snapshot based on the refreshed state (in-place, without waiting for render).
         const nextSnapshot = ensureComplianceComputed(res.state, { dateIso: todayIso });
 
+        // Compliance deviation toasts are the only automatic alerts now.
         const newDevs = detectNewDeviations(prevSnapshot, nextSnapshot, { persistSeen: true });
         if (newDevs.length) {
           // Push to toast queue. Keep items small; ToastCenter handles de-dupe window.
@@ -160,7 +131,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     const id = window.setInterval(refresh, 30_000);
 
     return () => window.clearInterval(id);
-  }, [autoRefreshEnabled, randomizeEnabled, fullState, scopedState, setFullState, todayIso]);
+  }, [autoRefreshEnabled, fullState, scopedState, setFullState, todayIso]);
 
   function exportDprSnapshotCsv() {
     const rows = [
@@ -184,67 +155,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     downloadCsv({ filename: `dpr_snapshot_${dprSnapshot.date}.csv`, csvText: csv });
   }
 
-  function manualRefreshNow() {
-    const prevSnapshot = prevComplianceRef.current;
 
-    const res = runDummyRefreshOnce(fullState, {
-      randomConfig: {
-        randomizeEnabled,
-        toastChancePerTick: 0.3,
-        deviationChance: 0.15,
-        taskFlipChance: 0.1,
-        progressJitterRange: [1, 4],
-        maxTaskFlipsPerTick: 1,
-      },
-    });
-
-    if (res.ok) {
-      setFullState(res.state);
-      setLastRefreshAt(res.refreshedAt);
-
-      if (Array.isArray(res.toastEvents) && res.toastEvents.length) {
-        setToastQueue((q) => [
-          ...res.toastEvents.map((t) => ({
-            id: t.id,
-            dedupeKey: t.dedupeKey,
-            severity: t.severity,
-            title: t.title,
-            subtitle: t.category ? `${String(t.category).toUpperCase()} · ${fmtTime(t.occurredAtIso)}` : fmtTime(t.occurredAtIso),
-            message: t.message,
-            engineerId: t.engineerId,
-            routeId: t.routeId,
-            rule: t.rule,
-          })),
-          ...q,
-        ]);
-      }
-
-      const nextSnapshot = ensureComplianceComputed(res.state, { dateIso: todayIso });
-      const newDevs = detectNewDeviations(prevSnapshot, nextSnapshot, { persistSeen: true });
-      if (newDevs.length) {
-        setToastQueue((q) => [
-          ...newDevs.map((d) => ({
-            id: d.id,
-            dedupeKey: d.dedupeKey,
-            severity: d.severity,
-            title: d.title,
-            subtitle: `${scopedState?.users?.find((u) => u.id === d.engineerId)?.name || d.engineerId} · ${
-              scopedState?.routes?.find((r) => r.id === d.routeId)?.name || d.routeId
-            }`,
-            message: d.message,
-            engineerId: d.engineerId,
-            routeId: d.routeId,
-            rule: d.rule,
-          })),
-          ...q,
-        ]);
-
-        const sevRank = { high: 3, medium: 2, low: 1 };
-        const best = [...newDevs].sort((a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0))[0];
-        setFocusDeviation(best);
-      }
-    }
-  }
 
   return (
     <div className="content">
@@ -282,42 +193,6 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
               >
                 {autoRefreshEnabled ? "Pause auto-refresh" : "Resume auto-refresh"}
               </button>
-
-              <button className="btn btnGhost" style={miniButtonStyle()} onClick={manualRefreshNow}>
-                Refresh now
-              </button>
-
-              <button
-                className="btn btnPrimary"
-                style={miniButtonStyle()}
-                onClick={() => {
-                  // Demo helper: force one tick that includes randomization behaviors (even if auto-refresh is paused).
-                  manualRefreshNow();
-                }}
-              >
-                Random tick now
-              </button>
-
-              <label
-                className="mini"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "6px 10px",
-                  border: "1px solid var(--ocean-border)",
-                  borderRadius: 10,
-                  background: "rgba(255,255,255,0.7)",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={randomizeEnabled}
-                  onChange={(e) => setRandomizeEnabled(e.target.checked)}
-                  aria-label="Enable/disable random demo mutations"
-                />
-                Randomize demo data
-              </label>
             </div>
           </div>
         </div>
