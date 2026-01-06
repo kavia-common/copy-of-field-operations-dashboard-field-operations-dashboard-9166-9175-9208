@@ -31,8 +31,13 @@ function getEngineerName(scopedState, engineerId) {
   return u?.name || engineerId;
 }
 
-function routeToStyle(route, isSelected) {
+function routeToStyle(route, isSelected, complianceTone) {
   if (isSelected) return { color: "#1E3A8A", weight: 5, opacity: 1.0 };
+
+  // If complianceTone is provided, emphasize the route with a dashed alert style.
+  if (complianceTone === "high") return { color: "#DC2626", weight: 6, opacity: 0.95, dashArray: "10 8" };
+  if (complianceTone === "medium") return { color: "#F59E0B", weight: 6, opacity: 0.9, dashArray: "10 8" };
+  if (complianceTone === "low") return { color: "#111827", weight: 5, opacity: 0.85, dashArray: "6 6" };
 
   const completion = Number(route.completion_percent || 0);
   // green >= 90, amber 60-89, red < 60
@@ -55,7 +60,7 @@ function FitToVisible({ bounds }) {
   return null;
 }
 
-export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId }) {
+export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot }) {
   const activeRoutes = useMemo(() => {
     if (!scopedState) return [];
     return scopedState.routes || [];
@@ -65,6 +70,22 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     if (!scopedState) return [];
     return scopedState.engineerLiveLocations || [];
   }, [scopedState]);
+
+  const worstSeverityByEngineer = useMemo(() => {
+    return complianceSnapshot?.perEngineerWorstSeverity || {};
+  }, [complianceSnapshot]);
+
+  const worstSeverityByRoute = useMemo(() => {
+    const flags = complianceSnapshot?.flags || [];
+    const sevRank = { high: 3, medium: 2, low: 1 };
+    const map = {};
+    flags.forEach((f) => {
+      if (!f.routeId) return;
+      const prev = map[f.routeId];
+      if (!prev || (sevRank[f.severity] || 0) > (sevRank[prev] || 0)) map[f.routeId] = f.severity;
+    });
+    return map;
+  }, [complianceSnapshot]);
 
   const latLngsForBounds = useMemo(() => {
     const pts = [];
@@ -95,6 +116,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       { label: "Good (≥ 90%)", color: "#059669" },
       { label: "Watch (60–89%)", color: "#F59E0B" },
       { label: "At Risk (< 60%)", color: "#DC2626" },
+      { label: "Non-compliance (dashed)", color: "#111827" },
     ];
   }, []);
 
@@ -148,7 +170,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
               {activeRoutes.map((r) => {
                 const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
-                const style = routeToStyle(r, isSelected);
+                const complianceTone = worstSeverityByRoute[r.id] || "";
+                const style = routeToStyle(r, isSelected, complianceTone);
                 const positions = toLatLngs(r.polyline);
 
                 if (positions.length < 2) return null;
@@ -167,6 +190,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       <div className="mini">
                         Completion: <strong>{Number(r.completion_percent || 0)}%</strong>
                       </div>
+                      {complianceTone ? (
+                        <div className="mini">
+                          Compliance:{" "}
+                          <strong style={{ textTransform: "uppercase" }}>
+                            {String(complianceTone)}
+                          </strong>
+                        </div>
+                      ) : null}
                       <div className="mini">Click to select</div>
                     </Tooltip>
                   </Polyline>
@@ -177,13 +208,16 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 if (!Number.isFinite(loc?.lat) || !Number.isFinite(loc?.lng)) return null;
 
                 const name = getEngineerName(scopedState, loc.engineerId);
+                const sev = worstSeverityByEngineer?.[loc.engineerId] || "";
+                const ringClass =
+                  sev === "high" ? "oceanEngineerMarkerRingHigh" : sev === "medium" ? "oceanEngineerMarkerRingMed" : sev ? "oceanEngineerMarkerRingLow" : "";
 
                 // Use a small, high-contrast pin to match Ocean Professional theme.
                 const icon = L.divIcon({
                   className: "oceanEngineerMarker",
-                  html: `<div class="oceanEngineerMarkerDot" aria-hidden="true"></div>`,
-                  iconSize: [16, 16],
-                  iconAnchor: [8, 8],
+                  html: `<div class="oceanEngineerMarkerDot" aria-hidden="true"></div>${sev ? `<div class="oceanEngineerMarkerRing ${ringClass}" aria-hidden="true"></div>` : ""}`,
+                  iconSize: [18, 18],
+                  iconAnchor: [9, 9],
                 });
 
                 return (
@@ -191,6 +225,11 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
                       <div style={{ fontWeight: 900 }}>{name}</div>
                       <div className="mini">{loc.engineerId}</div>
+                      {sev ? (
+                        <div className="mini">
+                          Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
+                        </div>
+                      ) : null}
                     </Tooltip>
                   </Marker>
                 );

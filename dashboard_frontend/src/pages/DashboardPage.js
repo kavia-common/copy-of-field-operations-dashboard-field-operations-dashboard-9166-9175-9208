@@ -7,6 +7,11 @@ import {
   computeExceptionsSummary,
   computeRouteCompletionSummary,
 } from "../state/domainStore";
+import {
+  ComplianceSeverity,
+  ensureComplianceComputed,
+  selectActiveFlagsBySeverity,
+} from "../state/compliance";
 import { downloadCsv, toCsv } from "../utils/csv";
 import MapPanel from "../components/MapPanel";
 import AllocationPanel from "../components/AllocationPanel";
@@ -30,7 +35,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
   /** Dashboard page showing map + key operational metric cards with drill-down modals. */
   const navigate = useNavigate();
   const [selectedRouteId, setSelectedRouteId] = useState("");
-  const [activeModal, setActiveModal] = useState(""); // "routes" | "allocation" | "exceptions" | ""
+  const [activeModal, setActiveModal] = useState(""); // "routes" | "allocation" | "exceptions" | "compliance" | ""
 
   const todayIso = useMemo(() => new Date().toISOString(), []);
   const routeSummary = useMemo(() => computeRouteCompletionSummary(scopedState, { dateIso: todayIso }), [scopedState, todayIso]);
@@ -41,11 +46,21 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
   const exceptionsSummary = useMemo(() => computeExceptionsSummary(scopedState, { dateIso: todayIso }), [scopedState, todayIso]);
   const dprSnapshot = useMemo(() => computeDprSnapshot(fullState, currentUser, { dateIso: todayIso }), [fullState, currentUser, todayIso]);
 
+  const complianceSnapshot = useMemo(() => {
+    // Persist once per day so drill-down views remain stable across navigation.
+    return ensureComplianceComputed(fullState, { dateIso: todayIso });
+  }, [fullState, todayIso]);
+
+  const complianceCounts = useMemo(() => selectActiveFlagsBySeverity(complianceSnapshot), [complianceSnapshot]);
+
   const topRemainingRoutes = useMemo(() => {
     return (routeSummary.perRoute || []).filter((r) => r.remaining > 0).slice(0, 3);
   }, [routeSummary.perRoute]);
 
   const canManageAllocation = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
+
+  const [complianceFilterSeverity, setComplianceFilterSeverity] = useState("");
+  const [complianceSort, setComplianceSort] = useState("severity"); // severity | engineer | route
 
   function exportDprSnapshotCsv() {
     const rows = [
@@ -73,10 +88,15 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     <div className="content">
       {/* Top: full-width map */}
       <div data-testid="dashboard-map">
-        <MapPanel scopedState={scopedState} selectedRouteId={selectedRouteId} onSelectRouteId={setSelectedRouteId} />
+        <MapPanel
+          scopedState={scopedState}
+          selectedRouteId={selectedRouteId}
+          onSelectRouteId={setSelectedRouteId}
+          complianceSnapshot={complianceSnapshot}
+        />
       </div>
 
-      {/* Bottom: four key metric cards */}
+      {/* Bottom: metric cards */}
       <div className="dashboardMetricsGrid" data-testid="dashboard-metrics">
         {/* 1) Route Completion */}
         <section className="card" aria-label="Route completion summary" data-testid="metric-route-completion">
@@ -216,7 +236,57 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           </div>
         </section>
 
-        {/* 4) DPR Snapshot */}
+        {/* 4) Compliance Alerts */}
+        <section className="card" aria-label="Compliance alerts summary" data-testid="metric-compliance">
+          <div className="cardHeader">
+            <div>
+              <h2>Compliance Alerts</h2>
+              <p>Automated route deviation & rule breaches (dummy GPS)</p>
+            </div>
+            <span className="badge badgeError">
+              <strong>{complianceCounts.total}</strong> active
+            </span>
+          </div>
+
+          <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+            <div className="kpi">
+              <div className="kpiLabel">High</div>
+              <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
+                {complianceCounts.high}
+              </div>
+              <div className="kpiSub">Immediate attention</div>
+            </div>
+            <div className="kpi">
+              <div className="kpiLabel">Medium</div>
+              <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
+                {complianceCounts.medium}
+              </div>
+              <div className="kpiSub">Investigate</div>
+            </div>
+            <div className="kpi">
+              <div className="kpiLabel">Low</div>
+              <div className="kpiValue">{complianceCounts.low}</div>
+              <div className="kpiSub">Monitor</div>
+            </div>
+          </div>
+
+          <hr className="hr" />
+
+          <div className="splitRow">
+            <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => setActiveModal("compliance")}>
+              Drill down
+            </button>
+            <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => navigate("/tasks")}>
+              Go to Tasks
+            </button>
+          </div>
+
+          <div className="mini" style={{ marginTop: 10 }}>
+            Rules include: off-route distance, missed checkpoints, out-of-geo-fence, prolonged idle, and start/end window breaches.
+          </div>
+        </section>
+
+        {/* 5) DPR Snapshot */}
         <section className="card" aria-label="Daily progress report snapshot" data-testid="metric-dpr">
           <div className="cardHeader">
             <div>
@@ -358,7 +428,123 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <ExceptionsPanel scopedState={scopedState} onSelectTaskId={() => navigate("/tasks")} />
+          <ExceptionsPanel
+            scopedState={scopedState}
+            onSelectTaskId={() => navigate("/tasks")}
+            nonComplianceRows={(complianceSnapshot?.flags || []).map((f) => ({
+              id: f.id,
+              title: `Non-compliance: ${String(f.rule).replaceAll("_", " ")}`,
+              type: "non_compliance",
+              severity: f.severity,
+              engineerId: f.engineerId,
+              engineerName: scopedState.users.find((u) => u.id === f.engineerId)?.name || f.engineerId,
+              regionId: scopedState.users.find((u) => u.id === f.engineerId)?.regionId || "",
+              routeId: f.routeId,
+              routeName: scopedState.routes.find((r) => r.id === f.routeId)?.name || f.routeId,
+              message: f.message,
+              rule: f.rule,
+              date: f.date,
+            }))}
+          />
+        </div>
+      </Modal>
+
+      {/* Compliance alerts drill-down modal */}
+      <Modal
+        open={activeModal === "compliance"}
+        title="Compliance Alerts"
+        description="Automated route deviation & non-compliance flags (dummy GPS breadcrumbs)."
+        onClose={() => setActiveModal("")}
+        maxWidth={1250}
+        footer={
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button className="btn btnGhost" onClick={() => setActiveModal("")}>
+              Done
+            </button>
+            <button className="btn btnPrimary" onClick={() => navigate("/tasks")}>
+              Go to Tasks
+            </button>
+          </div>
+        }
+      >
+        <div className="filters" style={{ marginBottom: 12 }}>
+          <label className="input">
+            <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Severity</span>
+            <select value={complianceFilterSeverity} onChange={(e) => setComplianceFilterSeverity(e.target.value)}>
+              <option value="">All</option>
+              <option value={ComplianceSeverity.HIGH}>High</option>
+              <option value={ComplianceSeverity.MEDIUM}>Medium</option>
+              <option value={ComplianceSeverity.LOW}>Low</option>
+            </select>
+          </label>
+
+          <label className="input">
+            <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Sort</span>
+            <select value={complianceSort} onChange={(e) => setComplianceSort(e.target.value)}>
+              <option value="severity">Severity</option>
+              <option value="engineer">Engineer</option>
+              <option value="route">Route</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="tableWrap">
+          <table className="table" aria-label="Compliance alerts table" style={{ minWidth: 980 }}>
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Engineer</th>
+                <th>Route</th>
+                <th>Rule</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(complianceSnapshot?.flags || [])
+                .filter((f) => (complianceFilterSeverity ? f.severity === complianceFilterSeverity : true))
+                .sort((a, b) => {
+                  const sevRank = { high: 3, medium: 2, low: 1 };
+                  if (complianceSort === "severity") return (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0);
+                  if (complianceSort === "engineer") return (a.engineerId || "").localeCompare(b.engineerId || "");
+                  return (a.routeId || "").localeCompare(b.routeId || "");
+                })
+                .map((f) => (
+                  <tr key={f.id}>
+                    <td>
+                      <span
+                        className={
+                          f.severity === ComplianceSeverity.HIGH
+                            ? "badge badgeError"
+                            : f.severity === ComplianceSeverity.MEDIUM
+                            ? "badge badgeWarn"
+                            : "badge"
+                        }
+                      >
+                        {f.severity.toUpperCase()}
+                      </span>
+                    </td>
+                    <td>{scopedState.users.find((u) => u.id === f.engineerId)?.name || f.engineerId}</td>
+                    <td>{scopedState.routes.find((r) => r.id === f.routeId)?.name || f.routeId}</td>
+                    <td style={{ fontWeight: 800 }}>{String(f.rule).replaceAll("_", " ")}</td>
+                    <td className="mini">{f.message}</td>
+                  </tr>
+                ))}
+              {(complianceSnapshot?.flags || []).filter((f) =>
+                complianceFilterSeverity ? f.severity === complianceFilterSeverity : true
+              ).length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="mini">
+                    No compliance alerts for the current filters.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <hr className="hr" />
+        <div className="mini">
+          Map highlighting: routes with <strong>high</strong> severity alerts are emphasized; engineer markers get an alert ring.
         </div>
       </Modal>
     </div>

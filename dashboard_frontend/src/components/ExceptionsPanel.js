@@ -21,29 +21,54 @@ function toneToBadgeClass(tone) {
 }
 
 // PUBLIC_INTERFACE
-export default function ExceptionsPanel({ scopedState, onSelectTaskId }) {
-  /** Shows active rejected/redo tasks within current scope. */
-  const [type, setType] = useState(""); // rejected | redo | all
+export default function ExceptionsPanel({ scopedState, onSelectTaskId, nonComplianceRows = [] }) {
+  /** Shows active rejected/redo tasks within current scope (and optional non-compliance entries). */
+  const [type, setType] = useState(""); // rejected | redo | non_compliance | all
   const [region, setRegion] = useState("");
   const [q, setQ] = useState("");
 
   const rows = useMemo(() => {
     const qLower = q.trim().toLowerCase();
-    return (scopedState.tasks || [])
+
+    const taskRows = (scopedState.tasks || [])
       .filter((t) => t.status === Statuses.REJECTED || t.status === Statuses.REDO)
-      .filter((t) => {
-        if (type && t.status !== type) return false;
-        if (region && t.regionId !== region) return false;
+      .map((t) => ({ kind: "task", task: t }));
+
+    const compliance = (nonComplianceRows || []).map((c) => ({ kind: "non_compliance", c }));
+
+    return [...taskRows, ...compliance]
+      .filter((row) => {
+        if (row.kind === "task") {
+          const t = row.task;
+          if (type && type !== "all" && type !== "task" && t.status !== type) return false;
+          if (region && t.regionId !== region) return false;
+          if (!qLower) return true;
+          return (
+            t.title.toLowerCase().includes(qLower) ||
+            t.id.toLowerCase().includes(qLower) ||
+            engineerName(scopedState, t.engineerId).toLowerCase().includes(qLower) ||
+            routeName(scopedState, t.routeId).toLowerCase().includes(qLower)
+          );
+        }
+
+        // non-compliance rows
+        if (type && type !== "all" && type !== "non_compliance") return false;
+        if (region && row.c.regionId !== region) return false;
         if (!qLower) return true;
         return (
-          t.title.toLowerCase().includes(qLower) ||
-          t.id.toLowerCase().includes(qLower) ||
-          engineerName(scopedState, t.engineerId).toLowerCase().includes(qLower) ||
-          routeName(scopedState, t.routeId).toLowerCase().includes(qLower)
+          String(row.c.title || "").toLowerCase().includes(qLower) ||
+          String(row.c.engineerName || "").toLowerCase().includes(qLower) ||
+          String(row.c.routeName || "").toLowerCase().includes(qLower) ||
+          String(row.c.rule || "").toLowerCase().includes(qLower) ||
+          String(row.c.message || "").toLowerCase().includes(qLower)
         );
       })
-      .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
-  }, [scopedState, type, region, q]);
+      .sort((a, b) => {
+        const aDate = a.kind === "task" ? a.task.dueDate || "" : a.c.date || "";
+        const bDate = b.kind === "task" ? b.task.dueDate || "" : b.c.date || "";
+        return aDate.localeCompare(bDate);
+      });
+  }, [scopedState, type, region, q, nonComplianceRows]);
 
   return (
     <div className="card">
@@ -67,6 +92,7 @@ export default function ExceptionsPanel({ scopedState, onSelectTaskId }) {
             <option value="">All</option>
             <option value={Statuses.REJECTED}>Rejected</option>
             <option value={Statuses.REDO}>Redo</option>
+            <option value="non_compliance">Non-compliance</option>
           </select>
         </label>
 
@@ -98,7 +124,35 @@ export default function ExceptionsPanel({ scopedState, onSelectTaskId }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((t) => {
+            {rows.map((row) => {
+              if (row.kind === "non_compliance") {
+                const c = row.c;
+                const badgeClass =
+                  c.severity === "high" ? "badge badgeError" : c.severity === "medium" ? "badge badgeWarn" : "badge";
+                return (
+                  <tr key={c.id}>
+                    <td>
+                      <div style={{ fontWeight: 900 }}>{c.title}</div>
+                      <div className="mini">{c.rule}</div>
+                    </td>
+                    <td>
+                      <span className={badgeClass}>{String(c.severity).toUpperCase()}</span>
+                    </td>
+                    <td>{c.engineerName || "—"}</td>
+                    <td>{regionName(scopedState, c.regionId)}</td>
+                    <td>{c.routeName || routeName(scopedState, c.routeId)}</td>
+                    <td>{c.message ? c.message : <span className="mini">—</span>}</td>
+                    <td className="mini">—</td>
+                    <td>
+                      <button className="btn btnGhost" onClick={() => onSelectTaskId?.("")}>
+                        Open Tasks
+                      </button>
+                    </td>
+                  </tr>
+                );
+              }
+
+              const t = row.task;
               const meta = statusMeta[t.status] || { label: t.status, tone: "neutral" };
               const reason = t.status === Statuses.REJECTED ? t.rejection_reason : t.redo_reason;
               return (
