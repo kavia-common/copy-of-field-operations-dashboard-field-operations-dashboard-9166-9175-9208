@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from "react";
-import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { createPortal } from "react-dom";
 import * as turf from "@turf/turf";
@@ -155,6 +155,87 @@ function strokeWeightForZoom(zoom, { min = 4, max = 8 } = {}) {
 const PLANNED_BLUE = "#2563EB"; // blue-600
 const LIVE_GREEN = "#059669"; // green-600
 const DEVIATION_RED = "#DC2626"; // red-600
+
+const WAYPOINT_REMAINING = "#F59E0B"; // amber-500
+const WAYPOINT_COVERED = "#059669"; // green-600
+const WAYPOINT_DESTINATION = "#1E3A8A"; // primary navy
+
+function makePinSvg({ fill, stroke = "rgba(17,24,39,0.35)", glyph = "", glyphColor = "#ffffff" }) {
+  // Simple map-pin path; rendered via inline SVG to avoid adding new assets.
+  const label = String(glyph || "");
+  return `
+  <svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="marker">
+    <path d="M15 39 C15 39 27 25 27 15 C27 7.268 21.732 2 15 2 C8.268 2 3 7.268 3 15 C3 25 15 39 15 39 Z"
+      fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
+    <circle cx="15" cy="15" r="6.6" fill="rgba(255,255,255,0.92)"/>
+    <text x="15" y="18.5" text-anchor="middle" font-size="9.5" font-weight="800" fill="${glyphColor}"
+      style="paint-order: stroke; stroke: rgba(0,0,0,0.12); stroke-width: 1px;">
+      ${label}
+    </text>
+  </svg>`;
+}
+
+function makeDotSvg({ fill, stroke = "rgba(17,24,39,0.30)" }) {
+  return `
+  <svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="waypoint">
+    <circle cx="7" cy="7" r="5.2" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />
+  </svg>`;
+}
+
+const engineerDivIcon = L.divIcon({
+  className: "oceanMarker oceanMarkerEngineer",
+  html: makePinSvg({ fill: "#0F766E", glyph: "E", glyphColor: "#111827" }),
+  iconSize: [30, 40],
+  iconAnchor: [15, 39],
+  tooltipAnchor: [0, -28],
+});
+
+const destinationDivIcon = L.divIcon({
+  className: "oceanMarker oceanMarkerDestination",
+  html: makePinSvg({ fill: WAYPOINT_DESTINATION, glyph: "D", glyphColor: "#111827" }),
+  iconSize: [30, 40],
+  iconAnchor: [15, 39],
+  tooltipAnchor: [0, -28],
+});
+
+function makeWaypointIcon({ status }) {
+  const fill = status === "covered" ? WAYPOINT_COVERED : WAYPOINT_REMAINING;
+  return L.divIcon({
+    className: `oceanMarker oceanMarkerWaypoint oceanMarkerWaypoint_${status}`,
+    html: makeDotSvg({ fill }),
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+    tooltipAnchor: [0, -10],
+  });
+}
+
+function clampWaypointCountForMarkers(polyline = [], max = 60) {
+  const pts = Array.isArray(polyline) ? polyline : [];
+  if (pts.length <= max) return pts;
+
+  // Keep first + last, then sample evenly. This prevents hundreds of markers from bogging the map.
+  const out = [];
+  const keep = Math.max(2, Number(max) || 60);
+  const stride = Math.ceil(pts.length / keep);
+  for (let i = 0; i < pts.length; i += stride) out.push(pts[i]);
+  const last = pts[pts.length - 1];
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
+}
+
+function computeWaypointCoverageStatus({ route, scopedState }) {
+  /**
+   * Covered/remaining is derived from existing route completion criteria:
+   * - plannedStops = total waypoints/stops
+   * - completedStops = covered waypoints/stops
+   *
+   * We don't invent new completion logic; we just map it onto the waypoints along the route polyline.
+   */
+  const criteria = computeRouteCompletionCriteriaForRoute(route, scopedState?.tasks || []);
+  const plannedStops = Math.max(0, Number(criteria?.plannedStops ?? 0));
+  const completedStops = Math.max(0, Math.min(Number(criteria?.completedStops ?? 0), plannedStops));
+  return { plannedStops, completedStops };
+}
 
 function plannedRouteStyle({ zoom }) {
   const base = strokeWeightForZoom(zoom, { min: 5, max: 9 });
@@ -1051,9 +1132,15 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       const plannedPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : rawPlannedPositions;
 
       plannedPositions.forEach((p) => pts.push(p));
+
+      // Include waypoint markers & destination in fit-to-bounds.
+      const sampledWaypoints = clampWaypointCountForMarkers(rawPlannedPositions, 60);
+      sampledWaypoints.forEach((p) => pts.push(p));
+      const dest = rawPlannedPositions[rawPlannedPositions.length - 1];
+      if (Array.isArray(dest) && dest.length === 2) pts.push(dest);
     });
 
-    // Live trails + deviated segments
+    // Live trails + deviated segments + live engineer marker
     (activeLocations || []).forEach((l) => {
       if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng)) return;
       pts.push([l.lat, l.lng]);
@@ -1377,7 +1464,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
               <TrackZoom onZoom={setMapZoom} />
               {bounds && <MapControls bounds={bounds} />}
 
-              {/* Planned routes (blue dashed) */}
+              {/* Planned routes (blue dashed) + waypoint markers (covered/remaining) + destination marker */}
               {showPlannedRoutes
                 ? activeRoutes.map((r) => {
                     const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
@@ -1398,6 +1485,20 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     const plannedStyle = plannedRouteStyle({ zoom: mapZoom });
                     const sel = selectionHighlightStyle({ zoom: mapZoom });
 
+                    const { plannedStops, completedStops } = computeWaypointCoverageStatus({ route: r, scopedState });
+
+                    // Marker waypoints: show along the route's raw polyline (this is the "waypoint list" in dummy data).
+                    // Sample to keep performance stable on long polylines.
+                    const markerWaypoints = clampWaypointCountForMarkers(rawPlannedPositions, 60);
+                    const totalMarkers = markerWaypoints.length;
+
+                    // Map completion count to markers: if there are N markers, consider first K covered.
+                    // We use plannedStops/completedStops to keep parity with existing completion logic.
+                    const markerCoveredCount =
+                      plannedStops > 0 && totalMarkers > 0 ? Math.round((Math.min(completedStops, plannedStops) / plannedStops) * totalMarkers) : 0;
+
+                    const destination = rawPlannedPositions[rawPlannedPositions.length - 1];
+
                     return (
                       <React.Fragment key={`planned_${r.id}`}>
                         <Polyline
@@ -1414,6 +1515,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             <div style={{ fontWeight: 900 }}>{r.name}</div>
                             <div className="mini">
                               Planned route: <strong style={{ color: PLANNED_BLUE }}>blue dashed</strong>
+                            </div>
+                            <div className="mini">
+                              Waypoints:{" "}
+                              <strong>
+                                {Math.min(completedStops, plannedStops)}/{plannedStops || rawPlannedPositions.length}
+                              </strong>{" "}
+                              covered
                             </div>
                             {snapKey ? (
                               <div className="mini">
@@ -1432,6 +1540,57 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             <div className="mini">Click for details</div>
                           </Tooltip>
                         </Polyline>
+
+                        {/* Waypoint dots */}
+                        {markerWaypoints.map((p, idx) => {
+                          const isCovered = idx < markerCoveredCount;
+                          const isDestination = idx === markerWaypoints.length - 1;
+
+                          // Destination is rendered with its own icon below; keep dot markers for intermediate points.
+                          if (isDestination) return null;
+
+                          return (
+                            <Marker
+                              key={`wp_${r.id}_${idx}`}
+                              position={p}
+                              icon={makeWaypointIcon({ status: isCovered ? "covered" : "remaining" })}
+                              interactive
+                            >
+                              <Tooltip direction="top" opacity={0.95}>
+                                <div style={{ fontWeight: 900 }}>{r.name}</div>
+                                <div className="mini">
+                                  Waypoint: <strong>{idx + 1}</strong>
+                                </div>
+                                <div className="mini">
+                                  Status:{" "}
+                                  {isCovered ? (
+                                    <strong style={{ color: WAYPOINT_COVERED }}>Covered</strong>
+                                  ) : (
+                                    <strong style={{ color: WAYPOINT_REMAINING }}>Remaining</strong>
+                                  )}
+                                </div>
+                              </Tooltip>
+                            </Marker>
+                          );
+                        })}
+
+                        {/* Destination pin */}
+                        {Array.isArray(destination) && destination.length === 2 ? (
+                          <Marker key={`dest_${r.id}`} position={destination} icon={destinationDivIcon} interactive>
+                            <Tooltip direction="top" opacity={0.95}>
+                              <div style={{ fontWeight: 900 }}>{r.name}</div>
+                              <div className="mini">
+                                Destination: <strong style={{ color: WAYPOINT_DESTINATION }}>Final waypoint</strong>
+                              </div>
+                              <div className="mini">
+                                Covered:{" "}
+                                <strong>
+                                  {Math.min(completedStops, plannedStops)}/{plannedStops || rawPlannedPositions.length}
+                                </strong>
+                              </div>
+                            </Tooltip>
+                          </Marker>
+                        ) : null}
 
                         {isSelected ? (
                           <>
@@ -1502,36 +1661,33 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   })
                 : null}
 
-              {/* Engineer “moving marker” = current location; ring indicates deviated */}
+              {/* Engineer “moving marker” = current location; distinct icon */}
               {(activeLocations || []).map((loc) => {
                 const engineerId = loc.engineerId;
                 if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) return null;
 
                 const live = liveTrailsByEngineerId.get(engineerId);
                 const routeId = (assignments || []).find((a) => a.engineerId === engineerId)?.routeId || "";
-                const routeColor = routeId ? routeColorById[routeId] || "#1E3A8A" : "#334155";
-
                 const routeVisible = routeId ? visibleRouteIds.has(routeId) : true;
-                const opacity = routeVisible ? 0.95 : 0.35;
+                const opacity = routeVisible ? 1.0 : 0.35;
 
                 const isDeviatedNow = Boolean(live?.isDeviatedNow);
-                const ringColor = isDeviatedNow ? DEVIATION_RED : "rgba(255,255,255,0.92)";
 
+                // Engineer icon remains distinct; deviation is conveyed via tooltip and live trail color.
+                // (We intentionally keep the icon stable to avoid jittering DOM reflows.)
                 return (
-                  <CircleMarker
+                  <Marker
                     key={`eng_${engineerId}`}
-                    center={[loc.lat, loc.lng]}
-                    radius={7}
-                    pathOptions={{
-                      color: ringColor,
-                      weight: isDeviatedNow ? 3 : 2,
-                      fillColor: routeColor,
-                      fillOpacity: opacity,
-                      opacity,
-                    }}
+                    position={[loc.lat, loc.lng]}
+                    icon={engineerDivIcon}
+                    opacity={opacity}
+                    interactive
                   >
                     <Tooltip direction="top" opacity={0.95}>
                       <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, engineerId)}</div>
+                      <div className="mini">
+                        Marker: <strong>Engineer</strong>
+                      </div>
                       <div className="mini">
                         Status:{" "}
                         {isDeviatedNow ? (
@@ -1550,7 +1706,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         Route: <strong>{live?.routeName || "Unassigned"}</strong>
                       </div>
                     </Tooltip>
-                  </CircleMarker>
+                  </Marker>
                 );
               })}
             </MapContainer>
@@ -1661,6 +1817,34 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <span aria-hidden="true" style={{ width: 26, height: 0, borderTop: `4px solid ${DEVIATION_RED}`, borderRadius: 999, display: "inline-block" }} />
                   <span>
                     Deviation: <strong style={{ color: DEVIATION_RED }}>red</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+                  <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 99, background: WAYPOINT_COVERED, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
+                  <span>
+                    Waypoint: <strong style={{ color: WAYPOINT_COVERED }}>covered</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 99, background: WAYPOINT_REMAINING, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
+                  <span>
+                    Waypoint: <strong style={{ color: WAYPOINT_REMAINING }}>remaining</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: WAYPOINT_DESTINATION, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
+                  <span>
+                    Destination: <strong style={{ color: WAYPOINT_DESTINATION }}>D pin</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: "#0F766E", display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
+                  <span>
+                    Engineer: <strong>E pin</strong> (live position)
                   </span>
                 </div>
 
