@@ -330,6 +330,12 @@
   }
 }
 
+/* Full-width section used below the dashboard metric grid (e.g., Non-Compliance) */
+.dashboardNonComplianceFullWidth {
+  width: 100%;
+  min-width: 0;
+}
+
 /* Small row layout used inside summary cards */
 .metricRow {
   display: flex;

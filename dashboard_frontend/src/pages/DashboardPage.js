@@ -252,86 +252,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           <ExceptionsCard scopedState={scopedState} dateIso={todayIso} onOpenTasks={() => navigate("/tasks")} />
         </section>
 
-        {/* 3) Non-Compliance (dedicated management view; uses existing compliance logic) */}
-        <section className="card" aria-label="Non-compliance summary" data-testid="metric-non-compliance">
-          <div className="cardHeader">
-            <div>
-              <h2>Non-Compliance</h2>
-              <p>Management oversight: deviations by severity + drill-down</p>
-            </div>
-            <span className="badge badgeError">
-              <strong>{complianceCounts.total}</strong> total
-            </span>
-          </div>
-
-          {(() => {
-            const trend = selectNonComplianceTrendToday(complianceSnapshot);
-            return (
-              <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-                <div className="kpi">
-                  <div className="kpiLabel">High</div>
-                  <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
-                    {complianceCounts.high}
-                  </div>
-                  <div className="kpiSub">Immediate action</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpiLabel">Medium</div>
-                  <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
-                    {complianceCounts.medium}
-                  </div>
-                  <div className="kpiSub">Investigate</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpiLabel">Low</div>
-                  <div className="kpiValue">{complianceCounts.low}</div>
-                  <div className="kpiSub">Monitor</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpiLabel">Trend today</div>
-                  <div className="kpiValue">{trend.lastHour}</div>
-                  <div className="kpiSub">Flags with timestamps in last hour</div>
-                </div>
-              </div>
-            );
-          })()}
-
-          <hr className="hr" />
-
-          <div className="splitRow">
-            <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => setActiveModal("non_compliance")}>
-              Drill down
-            </button>
-            <button
-              className="btn btnGhost"
-              style={miniButtonStyle()}
-              onClick={() => {
-                // Quick focus: pick the highest severity flag if any
-                const sevRank = { high: 3, medium: 2, low: 1 };
-                const best = [...(complianceSnapshot?.flags || [])].sort(
-                  (a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0)
-                )[0];
-                if (best) {
-                  setFocusDeviation({
-                    engineerId: best.engineerId,
-                    routeId: best.routeId,
-                    rule: best.rule,
-                    severity: best.severity,
-                  });
-                }
-              }}
-              disabled={!complianceCounts.total}
-            >
-              Focus highest
-            </button>
-          </div>
-
-          <div className="mini" style={{ marginTop: 10 }}>
-            This section is separate from Exceptions and Route Completion; it is built from compliance detection (dummy GPS breadcrumbs).
-          </div>
-        </section>
-
-        {/* 4) Engineer Allocation */}
+        {/* 3) Engineer Allocation */}
         <section className="card" aria-label="Engineer allocation summary" data-testid="metric-allocation">
           <div className="cardHeader">
             <div>
@@ -376,56 +297,6 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
               Allocation management is restricted to Admin / Regional Manager. You can view allocation details read-only here.
             </div>
           ) : null}
-        </section>
-
-        {/* 3) Compliance Alerts */}
-        <section className="card" aria-label="Compliance alerts summary" data-testid="metric-compliance">
-          <div className="cardHeader">
-            <div>
-              <h2>Compliance Alerts</h2>
-              <p>Automated route deviation & rule breaches (dummy GPS)</p>
-            </div>
-            <span className="badge badgeError">
-              <strong>{complianceCounts.total}</strong> active
-            </span>
-          </div>
-
-          <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-            <div className="kpi">
-              <div className="kpiLabel">High</div>
-              <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
-                {complianceCounts.high}
-              </div>
-              <div className="kpiSub">Immediate attention</div>
-            </div>
-            <div className="kpi">
-              <div className="kpiLabel">Medium</div>
-              <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
-                {complianceCounts.medium}
-              </div>
-              <div className="kpiSub">Investigate</div>
-            </div>
-            <div className="kpi">
-              <div className="kpiLabel">Low</div>
-              <div className="kpiValue">{complianceCounts.low}</div>
-              <div className="kpiSub">Monitor</div>
-            </div>
-          </div>
-
-          <hr className="hr" />
-
-          <div className="splitRow">
-            <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => setActiveModal("compliance")}>
-              Drill down
-            </button>
-            <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => navigate("/tasks")}>
-              Go to Tasks
-            </button>
-          </div>
-
-          <div className="mini" style={{ marginTop: 10 }}>
-            Rules include: off-route distance, missed checkpoints, out-of-geo-fence, prolonged idle, and start/end window breaches.
-          </div>
         </section>
 
         {/* 4) DPR Snapshot */}
@@ -475,6 +346,85 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           </div>
         </section>
       </div>
+
+      {/* Dedicated full-width Non-Compliance section below the metric cards */}
+      <section className="card dashboardNonComplianceFullWidth" aria-label="Non-compliance summary" data-testid="metric-non-compliance">
+        <div className="cardHeader">
+          <div>
+            <h2>Non-Compliance</h2>
+            <p>Management oversight: deviations by severity + drill-down</p>
+          </div>
+          <span className="badge badgeError">
+            <strong>{complianceCounts.total}</strong> total
+          </span>
+        </div>
+
+        {(() => {
+          const trend = selectNonComplianceTrendToday(complianceSnapshot);
+          return (
+            <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+              <div className="kpi">
+                <div className="kpiLabel">High</div>
+                <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
+                  {complianceCounts.high}
+                </div>
+                <div className="kpiSub">Immediate action</div>
+              </div>
+              <div className="kpi">
+                <div className="kpiLabel">Medium</div>
+                <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
+                  {complianceCounts.medium}
+                </div>
+                <div className="kpiSub">Investigate</div>
+              </div>
+              <div className="kpi">
+                <div className="kpiLabel">Low</div>
+                <div className="kpiValue">{complianceCounts.low}</div>
+                <div className="kpiSub">Monitor</div>
+              </div>
+              <div className="kpi">
+                <div className="kpiLabel">Trend today</div>
+                <div className="kpiValue">{trend.lastHour}</div>
+                <div className="kpiSub">Flags with timestamps in last hour</div>
+              </div>
+            </div>
+          );
+        })()}
+
+        <hr className="hr" />
+
+        <div className="splitRow">
+          <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => setActiveModal("non_compliance")}>
+            Drill down
+          </button>
+          <button
+            className="btn btnGhost"
+            style={miniButtonStyle()}
+            onClick={() => {
+              // Quick focus: pick the highest severity flag if any
+              const sevRank = { high: 3, medium: 2, low: 1 };
+              const best = [...(complianceSnapshot?.flags || [])].sort(
+                (a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0)
+              )[0];
+              if (best) {
+                setFocusDeviation({
+                  engineerId: best.engineerId,
+                  routeId: best.routeId,
+                  rule: best.rule,
+                  severity: best.severity,
+                });
+              }
+            }}
+            disabled={!complianceCounts.total}
+          >
+            Focus highest
+          </button>
+        </div>
+
+        <div className="mini" style={{ marginTop: 10 }}>
+          This section is separate from Exceptions and Route Completion; it is built from compliance detection (dummy GPS breadcrumbs).
+        </div>
+      </section>
 
       {/* Allocation drill-down modal (reuse AllocationPanel read-only if needed) */}
       <Modal
