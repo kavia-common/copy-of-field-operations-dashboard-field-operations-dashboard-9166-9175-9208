@@ -10,7 +10,11 @@ import { saveDomainState } from "./domainStore";
  * - route completed stops progress (and completion_percent updates)
  * - a few task statuses may advance (assigned -> in_progress -> completed)
  *
- * No external APIs or keys are required.
+ * Enhancements (demo randomization layer):
+ * - Optional randomized mutations (small bounded changes) so dashboard visibly updates
+ * - Optional random alert "toast events" emitted from the refresh tick (UI decides how to display)
+ *
+ * IMPORTANT: This file is the seam where real API polling can later replace the dummy mutations.
  */
 
 const REFRESH_META_STORAGE_KEY = "fod_dummy_refresh_meta_v1";
@@ -101,6 +105,47 @@ export function getLastRefreshMeta() {
   return loadRefreshMeta();
 }
 
+/**
+ * Dummy randomization config.
+ * Keep this small and controlled so it remains non-disruptive and demo-friendly.
+ */
+const DEFAULT_RANDOM_CONFIG = Object.freeze({
+  randomizeEnabled: true,
+  toastChancePerTick: 0.3,
+  deviationChance: 0.15,
+  taskFlipChance: 0.1,
+  progressJitterRange: [1, 4], // percent points to jitter/advance
+  maxTaskFlipsPerTick: 1,
+});
+
+function normalizeRandomConfig(cfg) {
+  const merged = { ...DEFAULT_RANDOM_CONFIG, ...(cfg || {}) };
+  const pr = Array.isArray(merged.progressJitterRange) ? merged.progressJitterRange : DEFAULT_RANDOM_CONFIG.progressJitterRange;
+  merged.progressJitterRange = [
+    Number.isFinite(Number(pr[0])) ? Number(pr[0]) : DEFAULT_RANDOM_CONFIG.progressJitterRange[0],
+    Number.isFinite(Number(pr[1])) ? Number(pr[1]) : DEFAULT_RANDOM_CONFIG.progressJitterRange[1],
+  ];
+  merged.toastChancePerTick = clamp(Number(merged.toastChancePerTick || 0), 0, 1);
+  merged.deviationChance = clamp(Number(merged.deviationChance || 0), 0, 1);
+  merged.taskFlipChance = clamp(Number(merged.taskFlipChance || 0), 0, 1);
+  merged.maxTaskFlipsPerTick = clamp(Number(merged.maxTaskFlipsPerTick || 1), 0, 5);
+  merged.randomizeEnabled = Boolean(merged.randomizeEnabled);
+  return merged;
+}
+
+function randomId(prefix) {
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+}
+
+function pick(arr, rand) {
+  if (!arr || arr.length === 0) return null;
+  return arr[Math.floor(rand() * arr.length)];
+}
+
+function rollChance(rand, p) {
+  return rand() < p;
+}
+
 function computeEngineerRouteProgressMap(state) {
   // We persist a per-engineer progress (0..1) in localStorage meta so movement feels continuous.
   const key = "fod_engineer_route_progress_v1";
@@ -128,11 +173,8 @@ function findRouteForEngineer(state, engineerId) {
   return (state.routes || []).find((r) => r.id === a.routeId) || null;
 }
 
-function tickEngineerMovement(nextState) {
+function tickEngineerMovement(nextState, rand) {
   const { progressByEngineer, setProgress, persist } = computeEngineerRouteProgressMap(nextState);
-
-  const seedBase = hashStringToInt("fod_refresh_seed");
-  const rand = mulberry32(seedBase + Date.now()); // slight variability each refresh
 
   const locations = Array.isArray(nextState.engineerLiveLocations) ? nextState.engineerLiveLocations : [];
   const updated = locations.map((loc) => {
@@ -166,10 +208,8 @@ function tickEngineerMovement(nextState) {
   persist();
 }
 
-function tickRouteProgress(nextState) {
+function tickRouteProgress(nextState, rand) {
   const routes = Array.isArray(nextState.routes) ? nextState.routes : [];
-  const seed = hashStringToInt(`route_tick_${Date.now().toString(16)}`);
-  const rand = mulberry32(seed);
 
   nextState.routes = routes.map((r) => {
     const planned = Number(r.planned_stops || 0);
@@ -188,10 +228,8 @@ function tickRouteProgress(nextState) {
   });
 }
 
-function tickSomeTaskStatuses(nextState) {
+function tickSomeTaskStatuses(nextState, rand) {
   const tasks = Array.isArray(nextState.tasks) ? nextState.tasks : [];
-  const seed = hashStringToInt(`task_tick_${Date.now().toString(16)}`);
-  const rand = mulberry32(seed);
 
   // Only lightly mutate to preserve demo feel:
   // - some ASSIGNED -> IN_PROGRESS
@@ -205,30 +243,224 @@ function tickSomeTaskStatuses(nextState) {
   });
 }
 
-function computeNextDomainState(prevState) {
+/**
+ * Randomization layer: produces small changes so the UI demonstrates live updates.
+ * IMPORTANT: Keep changes bounded and avoid excessive churn.
+ *
+ * Returns: { nextState, toastEvents }
+ */
+function applyRandomization(nextState, prevState, rand, config) {
+  const toastEvents = [];
+
+  const safeCfg = normalizeRandomConfig(config);
+  if (!safeCfg.randomizeEnabled) return { nextState, toastEvents };
+
+  // 1) Progress jitter/advance by percentage points (bounded, no <0 or >100, never regress).
+  // This is intentionally separate from stop-based progression so it visibly moves even for small planned_stops.
+  nextState.routes = (nextState.routes || []).map((r) => {
+    const planned = Number(r.planned_stops || 0);
+    const completed = Number(r.completed_stops || 0);
+
+    // If route has no stops, keep completion_percent stable.
+    if (planned <= 0) return computeRouteCompletion(r);
+
+    const prev = (prevState?.routes || []).find((x) => x.id === r.id) || r;
+    const prevPct = Number(prev?.completion_percent || 0);
+
+    const [minJ, maxJ] = safeCfg.progressJitterRange;
+    const jitter = Math.round(minJ + rand() * Math.max(0, maxJ - minJ));
+    const nextPct = clampPct(prevPct + jitter);
+
+    // Never regress completion: keep monotonic.
+    const monotonicPct = Math.max(prevPct, nextPct);
+
+    // Translate pct to stop counts in a consistent way.
+    // Ensure monotonic stops as well; keep within [0..planned].
+    const targetStops = clamp(Math.round((monotonicPct / 100) * planned), 0, planned);
+    const nextCompletedStops = Math.max(completed, targetStops);
+
+    // Optional progress milestone toast (on thresholds).
+    const milestone = monotonicPct >= 100 ? 100 : monotonicPct >= 90 ? 90 : monotonicPct >= 75 ? 75 : monotonicPct >= 50 ? 50 : 0;
+    const prevMilestone =
+      prevPct >= 100 ? 100 : prevPct >= 90 ? 90 : prevPct >= 75 ? 75 : prevPct >= 50 ? 50 : 0;
+
+    if (milestone && milestone !== prevMilestone) {
+      toastEvents.push({
+        id: randomId("toast"),
+        dedupeKey: `route_milestone|${r.id}|${milestone}`,
+        severity: milestone >= 90 ? "default" : "default",
+        title: "Route milestone reached",
+        category: "route",
+        occurredAtIso: nowIso(),
+        message: `${r.name || r.id} crossed ${milestone}% completion.`,
+        routeId: r.id,
+      });
+    }
+
+    return computeRouteCompletion({ ...r, completed_stops: nextCompletedStops });
+  });
+
+  // 2) Occasionally flip at most N tasks into exception states (Rejected/Redo) so Exceptions card updates.
+  // Guard: flip at most maxTaskFlipsPerTick.
+  const tasks = Array.isArray(nextState.tasks) ? nextState.tasks : [];
+  const flipCandidates = tasks.filter(
+    (t) =>
+      t &&
+      t.id &&
+      // Prefer flipping "active-ish" tasks to keep it believable
+      (t.status === Statuses.IN_PROGRESS || t.status === Statuses.ASSIGNED || t.status === Statuses.COMPLETED) &&
+      t.status !== Statuses.REJECTED &&
+      t.status !== Statuses.REDO
+  );
+
+  let flipsRemaining = safeCfg.maxTaskFlipsPerTick;
+
+  if (flipsRemaining > 0 && rollChance(rand, safeCfg.taskFlipChance) && flipCandidates.length) {
+    const chosen = pick(flipCandidates, rand);
+    if (chosen) {
+      const toStatus = rand() > 0.55 ? Statuses.REDO : Statuses.REJECTED;
+      const reasonsRejected = ["Customer not home", "Access blocked", "Safety concern reported", "Incorrect address details"];
+      const reasonsRedo = ["Photo evidence required", "Parts missing - return required", "Work quality review requested", "Validation failed - redo"];
+
+      nextState.tasks = tasks.map((t) => {
+        if (t.id !== chosen.id) return t;
+
+        if (toStatus === Statuses.REJECTED) {
+          return {
+            ...t,
+            status: Statuses.REJECTED,
+            rejection_reason: pick(reasonsRejected, rand) || "Issue reported",
+          };
+        }
+
+        return {
+          ...t,
+          status: Statuses.REDO,
+          redo_reason: pick(reasonsRedo, rand) || "Redo requested",
+          redo_count: Number.isFinite(t.redo_count) ? t.redo_count + 1 : 1,
+        };
+      });
+
+      toastEvents.push({
+        id: randomId("toast"),
+        dedupeKey: `task_exception|${chosen.id}|${toStatus}`,
+        severity: toStatus === Statuses.REJECTED ? "high" : "medium",
+        title: toStatus === Statuses.REJECTED ? "Task rejected" : "Task redo requested",
+        category: "task",
+        occurredAtIso: nowIso(),
+        message: `${chosen.title || chosen.id} marked as ${toStatus}.`,
+        engineerId: chosen.engineerId,
+        routeId: chosen.routeId,
+      });
+
+      flipsRemaining -= 1;
+    }
+  }
+
+  // 3) Sporadically reassign an engineer (shows visible change on map/metrics).
+  // Keep it rare and do not break scoping (assign within existing routes list).
+  if (rollChance(rand, 0.08) && Array.isArray(nextState.engineerAssignments) && Array.isArray(nextState.routes)) {
+    const assignments = nextState.engineerAssignments;
+    const routesList = nextState.routes;
+    if (assignments.length && routesList.length >= 2) {
+      const a = pick(assignments, rand);
+      const alt = pick(
+        routesList.filter((r) => r.id !== a.routeId),
+        rand
+      );
+      if (a && alt) {
+        nextState.engineerAssignments = assignments.map((x) => (x.engineerId === a.engineerId ? { ...x, routeId: alt.id } : x));
+
+        toastEvents.push({
+          id: randomId("toast"),
+          dedupeKey: `engineer_reassigned|${a.engineerId}|${alt.id}`,
+          severity: "default",
+          title: "Engineer reassigned",
+          category: "allocation",
+          occurredAtIso: nowIso(),
+          message: `Engineer ${a.engineerId} reassigned to ${alt.name || alt.id}.`,
+          engineerId: a.engineerId,
+          routeId: alt.id,
+        });
+      }
+    }
+  }
+
+  // 4) Optional "minor deviation" alert toast (does not itself create compliance flags).
+  // Compliance flags remain computed by compliance.js; this toast is a generic alert for demo.
+  if (rollChance(rand, safeCfg.deviationChance)) {
+    const routesList = Array.isArray(nextState.routes) ? nextState.routes : [];
+    const r = pick(routesList, rand);
+    if (r) {
+      toastEvents.push({
+        id: randomId("toast"),
+        dedupeKey: `minor_deviation|${r.id}`,
+        severity: "low",
+        title: "Minor deviation detected",
+        category: "compliance",
+        occurredAtIso: nowIso(),
+        message: `${r.name || r.id}: minor deviation pattern detected. Monitoring...`,
+        routeId: r.id,
+      });
+    }
+  }
+
+  // 5) Occasionally emit a generic toast per tick (controlled by toastChancePerTick)
+  // (This is separate from the specific events above.)
+  if (rollChance(rand, safeCfg.toastChancePerTick)) {
+    const variants = [
+      { title: "Update received", category: "system", severity: "default", message: "Live feed updated (dummy)." },
+      { title: "Progress updated", category: "route", severity: "default", message: "Routes advanced on the latest tick." },
+      { title: "Ops note", category: "ops", severity: "default", message: "Small operational change detected." },
+    ];
+    const v = pick(variants, rand);
+    if (v) {
+      toastEvents.push({
+        id: randomId("toast"),
+        dedupeKey: `generic_tick|${v.category}`,
+        severity: v.severity,
+        title: v.title,
+        category: v.category,
+        occurredAtIso: nowIso(),
+        message: v.message,
+      });
+    }
+  }
+
+  return { nextState, toastEvents };
+}
+
+function computeNextDomainState(prevState, { randomConfig } = {}) {
   const next = deepClone(prevState);
 
-  tickEngineerMovement(next);
-  tickRouteProgress(next);
-  tickSomeTaskStatuses(next);
+  // Deterministic-ish seed with time variability.
+  const seedBase = hashStringToInt("fod_refresh_seed");
+  const rand = mulberry32(seedBase + Date.now());
 
-  return next;
+  tickEngineerMovement(next, rand);
+  tickRouteProgress(next, rand);
+  tickSomeTaskStatuses(next, rand);
+
+  const randomized = applyRandomization(next, prevState, rand, randomConfig);
+  return { state: randomized.nextState, toastEvents: randomized.toastEvents };
 }
 
 // PUBLIC_INTERFACE
-export function runDummyRefreshOnce(fullState) {
+export function runDummyRefreshOnce(fullState, { randomConfig } = {}) {
   /**
    * Runs a single dummy refresh tick:
-   * - returns { ok, state, refreshedAt }
+   * - returns { ok, state, refreshedAt, toastEvents }
    * - persists updated domain state to localStorage
    * - persists meta.lastRefreshedAt
+   *
+   * NOTE: In a real app, replace this with API polling + websocket updates, then persist into domain store.
    */
   try {
-    const next = computeNextDomainState(fullState);
+    const { state: next, toastEvents } = computeNextDomainState(fullState, { randomConfig });
     const refreshedAt = nowIso();
     saveDomainState(next);
     saveRefreshMeta({ lastRefreshedAt: refreshedAt });
-    return { ok: true, state: next, refreshedAt };
+    return { ok: true, state: next, refreshedAt, toastEvents };
   } catch (e) {
     return { ok: false, error: e?.message || "Failed to refresh dummy data." };
   }

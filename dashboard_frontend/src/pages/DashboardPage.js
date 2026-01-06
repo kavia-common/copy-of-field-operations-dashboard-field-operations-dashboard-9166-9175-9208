@@ -48,6 +48,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
   // Dummy refresh controls
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [randomizeEnabled, setRandomizeEnabled] = useState(true);
   const [lastRefreshAt, setLastRefreshAt] = useState(() => getLastRefreshMeta()?.lastRefreshedAt || "");
 
   const allocationSummary = useMemo(
@@ -87,13 +88,42 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     if (!autoRefreshEnabled) return undefined;
 
     const refresh = () => {
-      const res = runDummyRefreshOnce(fullState);
-      if (res.ok) {
-        // Capture previous snapshot (based on previous state) before swapping state.
-        const prevSnapshot = prevComplianceRef.current;
+      const prevSnapshot = prevComplianceRef.current;
 
+      const res = runDummyRefreshOnce(fullState, {
+        randomConfig: {
+          // Keep this config small and easy to tweak while demoing.
+          // NOTE: This is the seam where real API polling options will later live.
+          randomizeEnabled,
+          toastChancePerTick: 0.3,
+          deviationChance: 0.15,
+          taskFlipChance: 0.1,
+          progressJitterRange: [1, 4],
+          maxTaskFlipsPerTick: 1,
+        },
+      });
+
+      if (res.ok) {
         setFullState(res.state);
         setLastRefreshAt(res.refreshedAt);
+
+        // Enqueue any random demo alerts (ToastCenter handles windowed de-dupe).
+        if (Array.isArray(res.toastEvents) && res.toastEvents.length) {
+          setToastQueue((q) => [
+            ...res.toastEvents.map((t) => ({
+              id: t.id,
+              dedupeKey: t.dedupeKey,
+              severity: t.severity,
+              title: t.title,
+              subtitle: t.category ? `${String(t.category).toUpperCase()} · ${fmtTime(t.occurredAtIso)}` : fmtTime(t.occurredAtIso),
+              message: t.message,
+              engineerId: t.engineerId,
+              routeId: t.routeId,
+              rule: t.rule,
+            })),
+            ...q,
+          ]);
+        }
 
         // Compute next snapshot based on the refreshed state (in-place, without waiting for render).
         const nextSnapshot = ensureComplianceComputed(res.state, { dateIso: todayIso });
@@ -130,7 +160,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     const id = window.setInterval(refresh, 30_000);
 
     return () => window.clearInterval(id);
-  }, [autoRefreshEnabled, fullState, scopedState, setFullState, todayIso]);
+  }, [autoRefreshEnabled, randomizeEnabled, fullState, scopedState, setFullState, todayIso]);
 
   function exportDprSnapshotCsv() {
     const rows = [
@@ -156,10 +186,38 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
   function manualRefreshNow() {
     const prevSnapshot = prevComplianceRef.current;
-    const res = runDummyRefreshOnce(fullState);
+
+    const res = runDummyRefreshOnce(fullState, {
+      randomConfig: {
+        randomizeEnabled,
+        toastChancePerTick: 0.3,
+        deviationChance: 0.15,
+        taskFlipChance: 0.1,
+        progressJitterRange: [1, 4],
+        maxTaskFlipsPerTick: 1,
+      },
+    });
+
     if (res.ok) {
       setFullState(res.state);
       setLastRefreshAt(res.refreshedAt);
+
+      if (Array.isArray(res.toastEvents) && res.toastEvents.length) {
+        setToastQueue((q) => [
+          ...res.toastEvents.map((t) => ({
+            id: t.id,
+            dedupeKey: t.dedupeKey,
+            severity: t.severity,
+            title: t.title,
+            subtitle: t.category ? `${String(t.category).toUpperCase()} · ${fmtTime(t.occurredAtIso)}` : fmtTime(t.occurredAtIso),
+            message: t.message,
+            engineerId: t.engineerId,
+            routeId: t.routeId,
+            rule: t.rule,
+          })),
+          ...q,
+        ]);
+      }
 
       const nextSnapshot = ensureComplianceComputed(res.state, { dateIso: todayIso });
       const newDevs = detectNewDeviations(prevSnapshot, nextSnapshot, { persistSeen: true });
@@ -215,7 +273,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
                 <strong>{fmtTime(lastRefreshAt)}</strong>
               </div>
             </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <button
                 className={autoRefreshEnabled ? "btn btnGhost" : "btn btnPrimary"}
                 style={miniButtonStyle()}
@@ -224,9 +282,42 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
               >
                 {autoRefreshEnabled ? "Pause auto-refresh" : "Resume auto-refresh"}
               </button>
+
               <button className="btn btnGhost" style={miniButtonStyle()} onClick={manualRefreshNow}>
                 Refresh now
               </button>
+
+              <button
+                className="btn btnPrimary"
+                style={miniButtonStyle()}
+                onClick={() => {
+                  // Demo helper: force one tick that includes randomization behaviors (even if auto-refresh is paused).
+                  manualRefreshNow();
+                }}
+              >
+                Random tick now
+              </button>
+
+              <label
+                className="mini"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 10px",
+                  border: "1px solid var(--ocean-border)",
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.7)",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={randomizeEnabled}
+                  onChange={(e) => setRandomizeEnabled(e.target.checked)}
+                  aria-label="Enable/disable random demo mutations"
+                />
+                Randomize demo data
+              </label>
             </div>
           </div>
         </div>
