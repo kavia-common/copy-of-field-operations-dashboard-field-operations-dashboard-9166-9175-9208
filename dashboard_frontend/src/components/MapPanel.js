@@ -218,9 +218,11 @@ function makeDotSvg({ fill, stroke = "rgba(17,24,39,0.30)" }) {
 const engineerImageIcon = L.icon({
   iconUrl: "/assets/engineer-marker.png",
   iconRetinaUrl: "/assets/engineer-marker.png",
-  iconSize: [44, 44],
-  iconAnchor: [22, 44],
-  tooltipAnchor: [0, -34],
+  // New uploaded marker is a pin-style icon. Use a slightly larger size for clarity,
+  // and anchor at the bottom center (the tip of the pin) so it points to the exact location.
+  iconSize: [48, 48],
+  iconAnchor: [24, 48],
+  tooltipAnchor: [0, -40],
   // Shadow intentionally omitted (uploaded image already has a clean silhouette).
 });
 
