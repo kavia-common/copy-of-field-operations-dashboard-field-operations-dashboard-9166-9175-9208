@@ -8,6 +8,7 @@ import EngineersPage from "./pages/EngineersPage";
 import TasksPage from "./pages/TasksPage";
 import DPRPage from "./pages/DPRPage";
 import AllocationPage from "./pages/AllocationPage";
+import RoutesConfigPage from "./pages/RoutesConfigPage";
 
 import AppShell from "./components/AppShell";
 import { loadSession, logout } from "./state/auth";
@@ -155,6 +156,24 @@ function App() {
               <RequireRole user={currentUser} allowRoles={[Roles.ADMIN, Roles.REGIONAL_MANAGER]}>
                 <AppShell currentUser={currentUser} onLogout={handleLogout}>
                   <AllocationPage
+                    scopedState={scopedState}
+                    fullState={domainState}
+                    setFullState={setDomainState}
+                    currentUser={currentUser}
+                  />
+                </AppShell>
+              </RequireRole>
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/routes"
+          element={
+            <RequireAuth user={currentUser}>
+              <RequireRole user={currentUser} allowRoles={[Roles.ADMIN, Roles.REGIONAL_MANAGER]}>
+                <AppShell currentUser={currentUser} onLogout={handleLogout}>
+                  <RoutesConfigPage
                     scopedState={scopedState}
                     fullState={domainState}
                     setFullState={setDomainState}

@@ -23,6 +23,78 @@ function randomId(prefix) {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Generates a consistent, local-only id for domain entities.
+ *
+ * Notes:
+ * - Uses the same randomId strategy already used for history/pulses.
+ * - Kept as a public helper so UI can generate IDs consistently when creating new routes/tasks.
+ */
+export function generateEntityId(prefix) {
+  /** Generates a random id with a stable prefix for domain entities. */
+  return randomId(prefix);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Normalizes and validates an array of waypoint rows into [{ lat, lng }, ...]
+ *
+ * Accepts:
+ * - { lat, lng } objects
+ * - { lat: string, lng: string } string inputs from forms
+ * - [lng, lat] arrays (for compatibility with stableWaypointsHash input style)
+ *
+ * Returns:
+ * - { ok: true, waypoints: [{lat,lng}], errors: [] }
+ * - { ok: false, waypoints: [], errors: string[] }
+ */
+export function normalizeWaypoints(inputWaypoints) {
+  /** Normalizes lat/lng and validates numeric ranges. */
+  const errors = [];
+  const list = Array.isArray(inputWaypoints) ? inputWaypoints : [];
+
+  const waypoints = list
+    .map((p, idx) => {
+      const latRaw = Array.isArray(p) ? p?.[1] : p?.lat;
+      const lngRaw = Array.isArray(p) ? p?.[0] : p?.lng;
+
+      const lat = typeof latRaw === "string" ? Number(latRaw) : Number(latRaw);
+      const lng = typeof lngRaw === "string" ? Number(lngRaw) : Number(lngRaw);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        errors.push(`Waypoint #${idx + 1}: lat/lng must be numbers.`);
+        return null;
+      }
+      if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+        errors.push(`Waypoint #${idx + 1}: lat must be within [-90,90] and lng within [-180,180].`);
+        return null;
+      }
+      return { lat, lng };
+    })
+    .filter(Boolean);
+
+  if (errors.length > 0) return { ok: false, waypoints: [], errors };
+  if (waypoints.length < 2) return { ok: false, waypoints: [], errors: ["At least 2 waypoints are required."] };
+
+  return { ok: true, waypoints, errors: [] };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Normalizes a manager identifier from form input.
+ *
+ * In this dummy app, managers are users with role === "Regional Manager". We store:
+ * - route.managerUserId: string | "" (optional)
+ *
+ * The UI may also provide a regionId (which implies a manager in dummy data), but we keep explicit manager id.
+ */
+export function normalizeManagerUserId(value) {
+  /** Returns a trimmed manager userId, or empty string. */
+  const v = String(value || "").trim();
+  return v;
+}
+
 function clampPct(n) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(100, Math.round(n)));
@@ -1382,6 +1454,339 @@ export function allocateEngineerToRoute(state, { engineerId, routeId }) {
 
   if (!routeId) return unassignRouteFromEngineer(state, { engineerId });
   return assignRouteToEngineer(state, { engineerId, routeId });
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Assigns (or unassigns) multiple engineers to a route in one operation.
+ *
+ * Behavior:
+ * - Engineers in engineerIds will be assigned to routeId (replacing any existing assignment).
+ * - Engineers not in engineerIds but currently assigned to routeId will be unassigned (when mode === "replace").
+ * - Always triggers a routeChangePulse when any assignment changes so MapPanel highlights and refreshes OSRM cache.
+ */
+export function setEngineersForRoute(state, { routeId, engineerIds = [], mode = "replace" } = {}) {
+  /** Bulk assignment helper for the Routes Config page. */
+  if (!routeId) return { ok: false, error: "Missing routeId." };
+
+  const desired = new Set((engineerIds || []).filter(Boolean));
+  const next = deepClone(state);
+  next.engineerAssignments = Array.isArray(next.engineerAssignments) ? next.engineerAssignments : [];
+
+  const prevAssignments = next.engineerAssignments.slice();
+  const changedRouteIds = new Set();
+
+  // Remove duplicates per engineer (keep one assignment).
+  const seenEngineer = new Set();
+  next.engineerAssignments = next.engineerAssignments.filter((a) => {
+    if (!a?.engineerId) return false;
+    if (seenEngineer.has(a.engineerId)) return false;
+    seenEngineer.add(a.engineerId);
+    return true;
+  });
+
+  const currentOnThisRoute = new Set(next.engineerAssignments.filter((a) => a.routeId === routeId).map((a) => a.engineerId));
+
+  // 1) Replace mode: unassign anyone currently on this route but not desired
+  if (mode === "replace") {
+    next.engineerAssignments = next.engineerAssignments.filter((a) => {
+      if (a.routeId !== routeId) return true;
+      if (desired.has(a.engineerId)) return true;
+      changedRouteIds.add(routeId);
+      return false;
+    });
+  }
+
+  // 2) Ensure desired engineers point to this route
+  desired.forEach((engineerId) => {
+    const prev = next.engineerAssignments.find((a) => a.engineerId === engineerId);
+    const prevRouteId = prev?.routeId || "";
+
+    if (prevRouteId !== routeId) {
+      // Replace assignment for that engineer
+      next.engineerAssignments = next.engineerAssignments.filter((a) => a.engineerId !== engineerId);
+      next.engineerAssignments.push({ engineerId, routeId });
+
+      if (prevRouteId) changedRouteIds.add(prevRouteId);
+      changedRouteIds.add(routeId);
+    }
+  });
+
+  // Detect changes vs prev to avoid unnecessary pulses.
+  const prevJson = JSON.stringify(prevAssignments.slice().sort((a, b) => String(a.engineerId).localeCompare(String(b.engineerId))));
+  const nextJson = JSON.stringify(next.engineerAssignments.slice().sort((a, b) => String(a.engineerId).localeCompare(String(b.engineerId))));
+  const didChange = prevJson !== nextJson;
+
+  if (!didChange) return { ok: true, state: next, changedRouteIds: [] };
+
+  next.routeChangePulse = {
+    id: randomId("pulse"),
+    routeIds: Array.from(changedRouteIds).filter(Boolean),
+    at: nowIso(),
+    reason: "assignment_changed",
+  };
+
+  saveDomainState(next);
+  return { ok: true, state: next, changedRouteIds: Array.from(changedRouteIds) };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Creates a new route and (optionally) placeholder tasks.
+ *
+ * Route model (local dummy):
+ * - id, name, regionId, managerUserId (optional), polyline [{lat,lng}]
+ * - planned_stops, completed_stops, completion_percent (computed)
+ *
+ * Tasks model:
+ * - id, title, status, routeId, regionId, engineerId (optional)
+ *
+ * Returns { ok, state, routeId }.
+ */
+export function createRoute(state, { name, regionId, managerUserId = "", waypoints = [], tasks: tasksInput = [] } = {}) {
+  /** Creates a new route in domain state and persists it. */
+  const title = String(name || "").trim();
+  if (!title) return { ok: false, error: "Route name is required." };
+  if (!regionId) return { ok: false, error: "Region is required." };
+
+  const wp = normalizeWaypoints(waypoints);
+  if (!wp.ok) return { ok: false, error: wp.errors.join(" ") };
+
+  const next = deepClone(state);
+
+  const routeId = generateEntityId("route");
+  const plannedStops = wp.waypoints.length;
+  const route = computeRouteCompletion({
+    id: routeId,
+    name: title,
+    regionId,
+    managerUserId: normalizeManagerUserId(managerUserId),
+    polyline: wp.waypoints,
+    planned_stops: plannedStops,
+    completed_stops: 0,
+    completion_percent: 0,
+  });
+
+  next.routes = Array.isArray(next.routes) ? next.routes.slice() : [];
+  next.routes.push(route);
+
+  // Optional placeholder tasks (kept minimal and backward compatible with strict completion logic)
+  next.tasks = Array.isArray(next.tasks) ? next.tasks.slice() : [];
+  const normalizedTasks = (Array.isArray(tasksInput) ? tasksInput : [])
+    .map((t) => {
+      const titleRaw = String(t?.title || t?.name || "").trim();
+      if (!titleRaw) return null;
+      const status = t?.status || Statuses.ASSIGNED;
+      return {
+        id: generateEntityId("task"),
+        title: titleRaw,
+        status,
+        regionId,
+        routeId,
+        engineerId: t?.engineerId || "",
+        dueDate: t?.dueDate || nowIso(),
+        nextDueDate: t?.nextDueDate || "",
+        rescheduledDate: t?.rescheduledDate || "",
+        rejection_reason: t?.rejection_reason || "",
+        redo_reason: t?.redo_reason || "",
+        redo_count: Number.isFinite(t?.redo_count) ? t.redo_count : 0,
+      };
+    })
+    .filter(Boolean);
+
+  next.tasks.push(...normalizedTasks);
+
+  // Editing routes should force OSRM geometry refresh (and optionally draw attention).
+  next.routeChangePulse = {
+    id: randomId("pulse"),
+    routeIds: [routeId],
+    at: nowIso(),
+    reason: "route_geometry_changed",
+  };
+
+  saveDomainState(next);
+  return { ok: true, state: next, routeId };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Updates an existing route (name/region/manager/waypoints) and optionally replaces route tasks.
+ *
+ * Important:
+ * - When region changes, we also update tasks.regionId for tasks belonging to the route.
+ * - If waypoints change, planned_stops is re-derived from waypoint count and completion_percent re-computed.
+ * - Triggers routeChangePulse to refresh MapPanel highlight/snapped cache.
+ */
+export function updateRoute(
+  state,
+  { routeId, patch = {}, replaceTasks = null, deleteTaskIds = [], upsertTasks = [] } = {}
+) {
+  /** Updates a route and persists it. */
+  if (!routeId) return { ok: false, error: "Missing routeId." };
+
+  const next = deepClone(state);
+  next.routes = Array.isArray(next.routes) ? next.routes : [];
+  next.tasks = Array.isArray(next.tasks) ? next.tasks : [];
+
+  const idx = next.routes.findIndex((r) => r.id === routeId);
+  if (idx === -1) return { ok: false, error: "Route not found." };
+
+  const prevRoute = next.routes[idx];
+  const nextRoute = { ...prevRoute };
+
+  if (typeof patch.name !== "undefined") {
+    const nm = String(patch.name || "").trim();
+    if (!nm) return { ok: false, error: "Route name is required." };
+    nextRoute.name = nm;
+  }
+  if (typeof patch.regionId !== "undefined") {
+    if (!patch.regionId) return { ok: false, error: "Region is required." };
+    nextRoute.regionId = patch.regionId;
+  }
+  if (typeof patch.managerUserId !== "undefined") {
+    nextRoute.managerUserId = normalizeManagerUserId(patch.managerUserId);
+  }
+
+  let waypointsChanged = false;
+  if (typeof patch.waypoints !== "undefined") {
+    const wp = normalizeWaypoints(patch.waypoints);
+    if (!wp.ok) return { ok: false, error: wp.errors.join(" ") };
+    nextRoute.polyline = wp.waypoints;
+    nextRoute.planned_stops = wp.waypoints.length;
+    // Conservative: keep completed_stops but clamp to planned.
+    nextRoute.completed_stops = Math.min(Number(nextRoute.completed_stops || 0), Number(nextRoute.planned_stops || 0));
+    waypointsChanged = true;
+  }
+
+  // Always keep completion percent consistent with counters.
+  next.routes[idx] = computeRouteCompletion(nextRoute);
+
+  // If region changed, propagate to tasks on this route (keeps filtering consistent).
+  if (prevRoute.regionId !== nextRoute.regionId) {
+    next.tasks = next.tasks.map((t) => (t.routeId === routeId ? { ...t, regionId: nextRoute.regionId } : t));
+  }
+
+  // Tasks editing modes:
+  // - replaceTasks: if provided (array), replace all tasks for this route with these new ones (new IDs)
+  // - deleteTaskIds: remove only specific tasks
+  // - upsertTasks: add or update tasks (if id exists) for this route
+  if (Array.isArray(replaceTasks)) {
+    // Remove existing
+    next.tasks = next.tasks.filter((t) => t.routeId !== routeId);
+    // Add new
+    const incoming = replaceTasks
+      .map((t) => {
+        const title = String(t?.title || t?.name || "").trim();
+        if (!title) return null;
+        return {
+          id: generateEntityId("task"),
+          title,
+          status: t?.status || Statuses.ASSIGNED,
+          regionId: nextRoute.regionId,
+          routeId,
+          engineerId: t?.engineerId || "",
+          dueDate: t?.dueDate || nowIso(),
+          nextDueDate: t?.nextDueDate || "",
+          rescheduledDate: t?.rescheduledDate || "",
+          rejection_reason: t?.rejection_reason || "",
+          redo_reason: t?.redo_reason || "",
+          redo_count: Number.isFinite(t?.redo_count) ? t.redo_count : 0,
+        };
+      })
+      .filter(Boolean);
+    next.tasks.push(...incoming);
+  } else {
+    if (Array.isArray(deleteTaskIds) && deleteTaskIds.length > 0) {
+      const del = new Set(deleteTaskIds.filter(Boolean));
+      next.tasks = next.tasks.filter((t) => !(t.routeId === routeId && del.has(t.id)));
+    }
+
+    if (Array.isArray(upsertTasks) && upsertTasks.length > 0) {
+      const byId = new Map(next.tasks.map((t) => [t.id, t]));
+      upsertTasks.forEach((t) => {
+        const title = String(t?.title || t?.name || "").trim();
+        if (!title) return;
+
+        const existingId = String(t?.id || "").trim();
+        if (existingId && byId.has(existingId)) {
+          const prev = byId.get(existingId);
+          if (prev.routeId !== routeId) return; // don't allow cross-route edits here
+          byId.set(existingId, {
+            ...prev,
+            title,
+            status: t?.status || prev.status,
+          });
+        } else {
+          const newTask = {
+            id: generateEntityId("task"),
+            title,
+            status: t?.status || Statuses.ASSIGNED,
+            regionId: nextRoute.regionId,
+            routeId,
+            engineerId: t?.engineerId || "",
+            dueDate: t?.dueDate || nowIso(),
+            nextDueDate: t?.nextDueDate || "",
+            rescheduledDate: t?.rescheduledDate || "",
+            rejection_reason: t?.rejection_reason || "",
+            redo_reason: t?.redo_reason || "",
+            redo_count: Number.isFinite(t?.redo_count) ? t.redo_count : 0,
+          };
+          byId.set(newTask.id, newTask);
+        }
+      });
+      next.tasks = Array.from(byId.values());
+    }
+  }
+
+  next.routeChangePulse = {
+    id: randomId("pulse"),
+    routeIds: [routeId],
+    at: nowIso(),
+    reason: waypointsChanged ? "route_geometry_changed" : "route_updated",
+  };
+
+  saveDomainState(next);
+  return { ok: true, state: next };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Deletes a route. Also:
+ * - unassigns any engineers mapped to it
+ * - removes tasks for the route
+ * - triggers a routeChangePulse for map cleanup/highlight
+ */
+export function deleteRoute(state, { routeId } = {}) {
+  /** Deletes a route and cleans up dependent assignments/tasks. */
+  if (!routeId) return { ok: false, error: "Missing routeId." };
+
+  const next = deepClone(state);
+  next.routes = Array.isArray(next.routes) ? next.routes : [];
+  next.tasks = Array.isArray(next.tasks) ? next.tasks : [];
+  next.engineerAssignments = Array.isArray(next.engineerAssignments) ? next.engineerAssignments : [];
+
+  const exists = next.routes.some((r) => r.id === routeId);
+  if (!exists) return { ok: false, error: "Route not found." };
+
+  // Remove route
+  next.routes = next.routes.filter((r) => r.id !== routeId);
+
+  // Unassign engineers on this route
+  const affectedEngineers = next.engineerAssignments.filter((a) => a.routeId === routeId).map((a) => a.engineerId);
+  next.engineerAssignments = next.engineerAssignments.filter((a) => a.routeId !== routeId);
+
+  // Remove tasks belonging to route
+  next.tasks = next.tasks.filter((t) => t.routeId !== routeId);
+
+  next.routeChangePulse = {
+    id: randomId("pulse"),
+    routeIds: [routeId],
+    at: nowIso(),
+    reason: "route_deleted",
+  };
+
+  saveDomainState(next);
+  return { ok: true, state: next, affectedEngineers };
 }
 
 // PUBLIC_INTERFACE

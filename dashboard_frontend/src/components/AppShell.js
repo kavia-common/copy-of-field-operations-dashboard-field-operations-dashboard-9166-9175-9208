@@ -9,6 +9,7 @@ function navItemClass({ isActive }) {
 export default function AppShell({ currentUser, onLogout, children }) {
   const canSeeEngineers = currentUser?.role !== Roles.FIELD_ENGINEER;
   const canSeeAllocation = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
+  const canSeeRoutesConfig = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
 
   const navigate = useNavigate();
 
@@ -46,6 +47,13 @@ export default function AppShell({ currentUser, onLogout, children }) {
           <NavLink className={navItemClass} to="/allocation">
             <span className="navIcon">A</span>
             Allocation
+          </NavLink>
+        )}
+
+        {canSeeRoutesConfig && (
+          <NavLink className={navItemClass} to="/routes">
+            <span className="navIcon">R</span>
+            Routes
           </NavLink>
         )}
 
