@@ -110,7 +110,7 @@ export const engineerLiveLocations = [
   { engineerId: "u_eng_13", lat: 34.0526, lng: -118.2467 }, // DTLA
   { engineerId: "u_eng_14", lat: 34.0407, lng: -118.2698 }, // Koreatown / Pico-Union
   { engineerId: "u_eng_15", lat: 34.0199, lng: -118.4915 }, // Santa Monica
-  { engineerId: "u_eng_16", lat: 34.1470, lng: -118.1440 }, // Pasadena
+  { engineerId: "u_eng_16", lat: 34.147, lng: -118.144 }, // Pasadena
 ];
 
 export const routes = [
@@ -126,7 +126,7 @@ export const routes = [
     postponed_stops: 1,
     // Roughly follows a Manhattan spine with realistic intersections/avenues
     polyline: [
-      { lat: 40.7580, lng: -73.9855 }, // Times Sq
+      { lat: 40.758, lng: -73.9855 }, // Times Sq
       { lat: 40.7527, lng: -73.9772 }, // Grand Central
       { lat: 40.7484, lng: -73.9857 }, // Empire State
       { lat: 40.7411, lng: -73.9897 }, // Flatiron
@@ -134,7 +134,7 @@ export const routes = [
       { lat: 40.7284, lng: -74.0021 }, // SoHo/West Village edge
       { lat: 40.7209, lng: -74.0049 }, // Tribeca
       { lat: 40.7093, lng: -74.0103 }, // WTC
-      { lat: 40.7060, lng: -74.0090 }, // Battery Park/FiDi edge
+      { lat: 40.706, lng: -74.009 }, // Battery Park/FiDi edge
     ],
   },
   // Northeast: NJ corridor (Jersey City / Hoboken / Newark-ish)
@@ -148,9 +148,9 @@ export const routes = [
     on_hold_stops: 2,
     postponed_stops: 2,
     polyline: [
-      { lat: 40.7440, lng: -74.0324 }, // Jersey City (Newport)
+      { lat: 40.744, lng: -74.0324 }, // Jersey City (Newport)
       { lat: 40.7393, lng: -74.0296 }, // Exchange Place corridor
-      { lat: 40.7336, lng: -74.0410 }, // Paulus Hook
+      { lat: 40.7336, lng: -74.041 }, // Paulus Hook
       { lat: 40.7282, lng: -74.0336 }, // Holland Tunnel approach
       { lat: 40.7419, lng: -74.0047 }, // west Midtown (near Lincoln Tunnel / West Side)
     ],
@@ -171,7 +171,7 @@ export const routes = [
       { lat: 33.7644, lng: -84.3874 }, // near North Ave / Connector
       { lat: 33.7726, lng: -84.3847 }, // Midtown
       { lat: 33.7815, lng: -84.3857 }, // near Arts Center
-      { lat: 33.7899, lng: -84.3880 }, // Buckhead-ish south edge
+      { lat: 33.7899, lng: -84.388 }, // Buckhead-ish south edge
     ],
   },
   {
@@ -186,9 +186,9 @@ export const routes = [
     polyline: [
       { lat: 33.7658, lng: -84.3722 }, // near Krog St / Inman Park
       { lat: 33.7712, lng: -84.3654 }, // Inman Park
-      { lat: 33.7810, lng: -84.3645 }, // Poncey-Highland
+      { lat: 33.781, lng: -84.3645 }, // Poncey-Highland
       { lat: 33.7926, lng: -84.3641 }, // toward Virginia-Highland / Morningside
-      { lat: 33.8050, lng: -84.3650 }, // toward North Druid Hills edge
+      { lat: 33.805, lng: -84.365 }, // toward North Druid Hills edge
     ],
   },
 
@@ -203,11 +203,11 @@ export const routes = [
     on_hold_stops: 2,
     postponed_stops: 1,
     polyline: [
-      { lat: 32.7767, lng: -96.7970 }, // Downtown Dallas
+      { lat: 32.7767, lng: -96.797 }, // Downtown Dallas
       { lat: 32.7854, lng: -96.8003 }, // Arts District
       { lat: 32.7952, lng: -96.8012 }, // toward Uptown
-      { lat: 32.8010, lng: -96.7906 }, // Knox/Henderson vicinity
-      { lat: 32.8046, lng: -96.7720 }, // near SMU/Mockingbird corridor
+      { lat: 32.801, lng: -96.7906 }, // Knox/Henderson vicinity
+      { lat: 32.8046, lng: -96.772 }, // near SMU/Mockingbird corridor
     ],
   },
   {
@@ -221,7 +221,7 @@ export const routes = [
     postponed_stops: 3,
     polyline: [
       { lat: 32.7551, lng: -97.3308 }, // Downtown Fort Worth
-      { lat: 32.7813, lng: -97.2970 }, // near Arlington Heights direction
+      { lat: 32.7813, lng: -97.297 }, // near Arlington Heights direction
       { lat: 32.8049, lng: -97.1925 }, // Arlington / Six Flags-ish corridor
       { lat: 32.8444, lng: -97.0416 }, // DFW Airport area
       { lat: 32.8343, lng: -96.9965 }, // Irving / Las Colinas
@@ -257,8 +257,8 @@ export const routes = [
     on_hold_stops: 2,
     postponed_stops: 2,
     polyline: [
-      { lat: 34.1470, lng: -118.1440 }, // Pasadena
-      { lat: 34.1437, lng: -118.1520 }, // Old Town Pasadena vicinity
+      { lat: 34.147, lng: -118.144 }, // Pasadena
+      { lat: 34.1437, lng: -118.152 }, // Old Town Pasadena vicinity
       { lat: 34.1367, lng: -118.1743 }, // Eagle Rock-ish
       { lat: 34.1256, lng: -118.2551 }, // near Silver Lake / Atwater
       { lat: 34.0526, lng: -118.2467 }, // back to DTLA
@@ -301,6 +301,8 @@ export const tasks = [
     engineerId: "u_eng_1",
     routeId: "route_ne_1",
     dueDate: "2026-01-10",
+    // Scheduled/next occurrence (read-only on Tasks page)
+    nextDueDate: "2026-01-17",
     status: Statuses.IN_PROGRESS,
     rejection_reason: "",
     redo_reason: "",
@@ -313,6 +315,7 @@ export const tasks = [
     engineerId: "u_eng_2",
     routeId: "route_ne_1",
     dueDate: "2026-01-08",
+    nextDueDate: "2026-01-15",
     status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
@@ -325,6 +328,7 @@ export const tasks = [
     engineerId: "u_eng_3",
     routeId: "route_ne_2",
     dueDate: "2026-01-11",
+    nextDueDate: "2026-01-18",
     status: Statuses.ON_HOLD,
     rejection_reason: "",
     redo_reason: "",
@@ -337,6 +341,7 @@ export const tasks = [
     engineerId: "u_eng_4",
     routeId: "route_ne_2",
     dueDate: "2026-01-09",
+    nextDueDate: "2026-01-16",
     status: Statuses.COMPLETED,
     rejection_reason: "",
     redo_reason: "",
@@ -351,6 +356,7 @@ export const tasks = [
     engineerId: "u_eng_5",
     routeId: "route_se_1",
     dueDate: "2026-01-08",
+    nextDueDate: "2026-01-15",
     status: Statuses.IN_PROGRESS,
     rejection_reason: "",
     redo_reason: "",
@@ -363,6 +369,7 @@ export const tasks = [
     engineerId: "u_eng_6",
     routeId: "route_se_1",
     dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
     status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
@@ -375,6 +382,7 @@ export const tasks = [
     engineerId: "u_eng_7",
     routeId: "route_se_2",
     dueDate: "2026-01-11",
+    nextDueDate: "2026-01-18",
     status: Statuses.IN_PROGRESS,
     rejection_reason: "",
     redo_reason: "",
@@ -387,6 +395,7 @@ export const tasks = [
     engineerId: "u_eng_8",
     routeId: "route_se_2",
     dueDate: "2026-01-07",
+    nextDueDate: "2026-01-14",
     status: Statuses.ON_HOLD,
     rejection_reason: "",
     redo_reason: "",
@@ -401,6 +410,7 @@ export const tasks = [
     engineerId: "u_eng_9",
     routeId: "route_c_1",
     dueDate: "2026-01-12",
+    nextDueDate: "2026-01-19",
     status: Statuses.IN_PROGRESS,
     rejection_reason: "",
     redo_reason: "",
@@ -413,6 +423,7 @@ export const tasks = [
     engineerId: "u_eng_10",
     routeId: "route_c_1",
     dueDate: "2026-01-07",
+    nextDueDate: "2026-01-14",
     status: Statuses.POSTPONED,
     rejection_reason: "",
     redo_reason: "",
@@ -425,6 +436,7 @@ export const tasks = [
     engineerId: "u_eng_11",
     routeId: "route_c_2",
     dueDate: "2026-01-13",
+    nextDueDate: "2026-01-20",
     status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
@@ -437,6 +449,7 @@ export const tasks = [
     engineerId: "u_eng_12",
     routeId: "route_c_2",
     dueDate: "2026-01-06",
+    nextDueDate: "2026-01-13",
     status: Statuses.REDO,
     rejection_reason: "",
     redo_reason: "Photo evidence missing; please re-submit.",
@@ -451,6 +464,7 @@ export const tasks = [
     engineerId: "u_eng_13",
     routeId: "route_w_1",
     dueDate: "2026-01-09",
+    nextDueDate: "2026-01-16",
     status: Statuses.COMPLETED,
     rejection_reason: "",
     redo_reason: "",
@@ -463,6 +477,7 @@ export const tasks = [
     engineerId: "u_eng_14",
     routeId: "route_w_1",
     dueDate: "2026-01-12",
+    nextDueDate: "2026-01-19",
     status: Statuses.POSTPONED,
     rejection_reason: "",
     redo_reason: "",
@@ -475,6 +490,7 @@ export const tasks = [
     engineerId: "u_eng_15",
     routeId: "route_w_2",
     dueDate: "2026-01-13",
+    nextDueDate: "2026-01-20",
     status: Statuses.REJECTED,
     rejection_reason: "Work order missing required before/after photos.",
     redo_reason: "",
@@ -487,6 +503,7 @@ export const tasks = [
     engineerId: "u_eng_16",
     routeId: "route_w_2",
     dueDate: "2026-01-06",
+    nextDueDate: "2026-01-13",
     status: Statuses.IN_PROGRESS,
     rejection_reason: "",
     redo_reason: "",

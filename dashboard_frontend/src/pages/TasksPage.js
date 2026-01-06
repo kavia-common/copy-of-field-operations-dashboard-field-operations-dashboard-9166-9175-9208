@@ -24,6 +24,19 @@ function isExceptionStatus(status) {
   return status === Statuses.REJECTED || status === Statuses.REDO;
 }
 
+function formatDateShortLocal(dateValue) {
+  // Render a concise local date (no time). Accepts YYYY-MM-DD or ISO strings.
+  if (!dateValue) return "—";
+  const d = new Date(dateValue);
+  if (!Number.isFinite(d.getTime())) return String(dateValue);
+  try {
+    return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(d);
+  } catch {
+    // Fallback to YYYY-MM-DD
+    return d.toISOString().slice(0, 10);
+  }
+}
+
 /**
  * Builds a compact, read-only "Engineer comments" string for a task row.
  * We treat comments as:
@@ -186,6 +199,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                 <th>Region</th>
                 <th>Route</th>
                 <th>Due</th>
+                <th>Next Due Date</th>
                 <th>Status</th>
                 <th>Engineer comments</th>
               </tr>
@@ -210,7 +224,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                     <td>{engineerName(scopedState, t.engineerId)}</td>
                     <td>{regionName(scopedState, t.regionId)}</td>
                     <td>{routeName(scopedState, t.routeId)}</td>
-                    <td>{t.dueDate || "—"}</td>
+                    <td>{t.dueDate ? formatDateShortLocal(t.dueDate) : "—"}</td>
+                    <td>{t.nextDueDate ? formatDateShortLocal(t.nextDueDate) : "—"}</td>
                     <td>
                       <span className={badgeClass}>{meta.label}</span>
                       {isExceptionStatus(t.status) && (
@@ -241,7 +256,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="mini">
+                  <td colSpan={8} className="mini">
                     No tasks match your filters.
                   </td>
                 </tr>

@@ -203,6 +203,8 @@ export function loadDomainState() {
     next.statusHistory = Array.isArray(next.statusHistory) ? next.statusHistory : [];
     next.tasks = (next.tasks || []).map((t) => ({
       ...t,
+      // Next scheduled due date (read-only). If missing (older localStorage), keep empty string.
+      nextDueDate: t.nextDueDate || "",
       rejection_reason: t.rejection_reason || "",
       redo_reason: t.redo_reason || "",
       redo_count: Number.isFinite(t.redo_count) ? t.redo_count : 0,
