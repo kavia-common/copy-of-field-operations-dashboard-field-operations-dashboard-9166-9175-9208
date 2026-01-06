@@ -72,8 +72,7 @@ export default function RouteCompletionCard({ scopedState, dateIso, onShowDetail
         <hr className="hr" />
 
         <div className="mini">
-          Helper: a route counts as <strong>completed</strong> only when all planned stops are covered and all tasks on the route are
-          completed.
+          A route is <strong>completed</strong> only when all waypoints are covered and all tasks on the route are completed.
         </div>
       </div>
 
