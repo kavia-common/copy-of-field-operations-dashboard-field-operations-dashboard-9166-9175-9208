@@ -46,8 +46,8 @@ export default function ExceptionsCard({ scopedState, dateIso }) {
           <p style={{ margin: 0, width: "100%" }}>Today&apos;s task outcomes ({counts.date})</p>
         </div>
 
-        <span className={toneToBadgeClass(tone)} aria-label="Completed tasks due today in current scope">
-          Completed: <strong>{counts.completed}</strong>
+        <span className={toneToBadgeClass(tone)} aria-label="Total tasks due today in current scope">
+          Total: <strong>{totalTasks}</strong>
         </span>
       </div>
 
