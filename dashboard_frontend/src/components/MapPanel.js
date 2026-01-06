@@ -276,8 +276,11 @@ function makeEngineerIcon({ variant = "pin", fill = "#0F766E" } = {}) {
 
 // Default engineer icon (requested default: rounded pin).
 const engineerDefaultIcon = makeEngineerIcon({ variant: "pin", fill: "#0F766E" });
-// Alternate variant kept in code for easy switching/testing.
-const engineerAvatarIcon = makeEngineerIcon({ variant: "avatar", fill: "#0F766E" });
+/**
+ * Alternate variant (circle avatar) used for engineer markers.
+ * Per requirement: set engineer circle avatar fill to blue while keeping sizing/anchor/tooltip offsets intact.
+ */
+const engineerAvatarIcon = makeEngineerIcon({ variant: "avatar", fill: "#2563EB" });
 
 const destinationDivIcon = L.divIcon({
   className: "oceanMarker oceanMarkerDestination",
