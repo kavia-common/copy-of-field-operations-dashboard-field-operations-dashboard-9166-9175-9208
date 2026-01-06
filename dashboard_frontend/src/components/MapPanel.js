@@ -102,6 +102,10 @@ const ROUTE_COLOR_PALETTE = [
 
 const DEVIATION_RED = "#DC2626";
 
+// Distinct map layer colors (kept stable across routes).
+// Planned route continues to use per-route color palette.
+const ACTUAL_BLUE = "#2563EB"; // blue-600
+
 const ROUTE_HALO = {
   color: "#0b1a3a",
   opacity: 0.35,
@@ -167,9 +171,59 @@ function actualPathStyle({ zoom, color }) {
   return { color, weight: Math.max(3, base - 1), opacity: 0.95, lineCap: "round", lineJoin: "round" };
 }
 
-function deviationHighlightStyle({ zoom }) {
-  const base = strokeWeightForZoom(zoom, { min: 6, max: 11 });
-  return { color: DEVIATION_RED, weight: base, opacity: 0.95, dashArray: "10 7", lineCap: "round", lineJoin: "round" };
+function deviationOverlayStyle({ zoom }) {
+  // Deviations should render as a separate overlay polyline (solid red), distinct from the actual path line.
+  const base = strokeWeightForZoom(zoom, { min: 5, max: 10 });
+  return { color: DEVIATION_RED, weight: base, opacity: 0.95, lineCap: "round", lineJoin: "round" };
+}
+
+/**
+ * Best-effort extraction of deviated segments from compliance flags.
+ * The dummy compliance model may evolve, so this supports multiple common shapes:
+ * - flag.segment: [{lat,lng}...] or [[lat,lng]...]
+ * - flag.segmentLatLngs: [[lat,lng]...]
+ * - flag.polyline: [{lat,lng}...] or [[lat,lng]...]
+ * If no explicit geometry is present, it returns [] (we do NOT fall back to highlighting the entire route).
+ */
+function pickSegmentLatLngsFromFlag(flag) {
+  const seg =
+    flag?.segment ||
+    flag?.segmentLatLngs ||
+    flag?.polyline ||
+    flag?.geometry ||
+    flag?.path ||
+    flag?.deviationSegment ||
+    null;
+
+  if (!seg) return [];
+
+  // [[lat,lng], ...]
+  if (Array.isArray(seg) && seg.length > 0 && Array.isArray(seg[0]) && seg[0].length >= 2) {
+    return seg
+      .map((p) => [Number(p[0]), Number(p[1])])
+      .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  }
+
+  // [{lat,lng}, ...]
+  if (Array.isArray(seg) && seg.length > 0 && typeof seg[0] === "object") {
+    return toLatLngs(seg);
+  }
+
+  return [];
+}
+
+function buildDeviationSegmentsForRoute(complianceSnapshot, routeId) {
+  const flags = complianceSnapshot?.flags || [];
+  const out = [];
+
+  flags.forEach((f) => {
+    if (!f || f.routeId !== routeId) return;
+
+    const seg = pickSegmentLatLngsFromFlag(f);
+    if (seg.length >= 2) out.push(seg);
+  });
+
+  return out;
 }
 
 function selectionHighlightStyle({ zoom }) {
@@ -877,6 +931,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       plannedPositions.forEach((p) => pts.push(p));
       actualPositions.forEach((p) => pts.push(p));
+
+      // Deviation segments: include geometry when available so bounds covers both layers.
+      const deviationSegments = buildDeviationSegmentsForRoute(complianceSnapshot, r.id);
+      deviationSegments.forEach((seg) => seg.forEach((p) => pts.push(p)));
     });
 
     // Engineers are always shown; bounds always includes their positions.
@@ -885,7 +943,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     });
 
     return pts;
-  }, [activeRoutes, activeLocations, routesWaypointMetaByRouteId, snappedByKey]);
+  }, [activeRoutes, activeLocations, routesWaypointMetaByRouteId, snappedByKey, complianceSnapshot]);
 
   const hasAnyGeo = latLngsForBounds.length > 0;
 
@@ -1142,12 +1200,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                 const haloStyle = routeHaloStyle({ zoom: mapZoom });
                 const plannedStyle = plannedRouteStyle({ zoom: mapZoom, color });
-                const actualStyle = actualPathStyle({ zoom: mapZoom, color });
-                const deviationStyle = deviationHighlightStyle({ zoom: mapZoom });
+                const actualStyle = actualPathStyle({ zoom: mapZoom, color: ACTUAL_BLUE });
+                const deviationStyle = deviationOverlayStyle({ zoom: mapZoom });
                 const sel = selectionHighlightStyle({ zoom: mapZoom });
 
+                const deviationSegments = buildDeviationSegmentsForRoute(complianceSnapshot, r.id);
                 const showDeviationForRoute = Boolean(hasDeviationByRouteId?.[r.id]);
-                const showDeviationOverlay = showDeviationForRoute;
 
                 return (
                   <React.Fragment key={`route_stack_${r.id}`}>
@@ -1183,7 +1241,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </div>
 
                         <div className="mini">
-                          Planned: <strong>dashed</strong> · Actual: <strong>solid</strong>
+                          Planned: <strong>dashed</strong> · Actual: <strong style={{ color: ACTUAL_BLUE }}>blue</strong> · Deviations:{" "}
+                          <strong style={{ color: DEVIATION_RED }}>red</strong>
                         </div>
 
                         {snapKey ? (
@@ -1203,7 +1262,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                         {showDeviationForRoute ? (
                           <div className="mini">
-                            Deviation: <strong style={{ color: DEVIATION_RED }}>highlighted</strong>
+                            Deviation: <strong style={{ color: DEVIATION_RED }}>flagged</strong>
+                            {deviationSegments.length === 0 ? " (no segment geometry)" : ""}
                           </div>
                         ) : (
                           <div className="mini">Deviation: none</div>
@@ -1213,20 +1273,22 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       </Tooltip>
                     </Polyline>
 
-                    {/* Actual path (solid) */}
+                    {/* Actual path (solid blue) */}
                     {actualPositions.length >= 2 ? <Polyline positions={actualPositions} pathOptions={actualStyle} interactive={false} /> : null}
 
-                    {/* Deviations overlay (when flagged) */}
-                    {showDeviationOverlay ? (
-                      <>
-                        <Polyline positions={plannedPositions} pathOptions={deviationStyle} interactive={false} />
-                        {actualPositions.length >= 2 ? (
-                          <Polyline positions={actualPositions} pathOptions={deviationStyle} interactive={false} />
-                        ) : null}
-                      </>
-                    ) : null}
+                    {/* Deviations overlay (solid red segments, when geometry is available) */}
+                    {deviationSegments.length > 0
+                      ? deviationSegments.map((seg, idx) => (
+                          <Polyline
+                            key={`dev_${r.id}_${idx}`}
+                            positions={seg}
+                            pathOptions={deviationStyle}
+                            interactive={false}
+                          />
+                        ))
+                      : null}
 
-                    {/* Selection highlight */}
+                    {/* Selection highlight (keeps existing behavior; highlight the planned route geometry) */}
                     {isSelected ? (
                       <>
                         <Polyline positions={plannedPositions} pathOptions={sel.halo} interactive={false} />
@@ -1364,10 +1426,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   Planned route: <strong>dashed</strong>
                 </div>
                 <div className="mini">
-                  Actual path: <strong>solid</strong>
+                  Actual route: <strong style={{ color: ACTUAL_BLUE }}>solid (blue)</strong>
                 </div>
                 <div className="mini">
-                  Deviations: <strong style={{ color: DEVIATION_RED }}>red highlight</strong>
+                  Deviations: <strong style={{ color: DEVIATION_RED }}>solid (red)</strong>
                 </div>
                 <div className="mini">
                   Waypoints: <strong>white markers</strong>
