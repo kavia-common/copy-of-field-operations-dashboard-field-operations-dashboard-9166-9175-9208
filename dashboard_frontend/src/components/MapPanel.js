@@ -103,8 +103,14 @@ const ROUTE_COLOR_PALETTE = [
 const DEVIATION_RED = "#DC2626";
 
 // Distinct map layer colors (kept stable across routes).
-// Planned route continues to use per-route color palette.
+// Planned layer is now status-colored (Completed/In Progress/Not Started).
 const ACTUAL_BLUE = "#2563EB"; // blue-600
+
+// Status colors for the former Planned layer (dashed).
+// Use palette tones aligned with the app theme and the request.
+const STATUS_COMPLETED_GREEN = "#059669"; // success
+const STATUS_IN_PROGRESS_YELLOW = "#F59E0B"; // warn/amber
+const STATUS_NOT_STARTED_BLUE = "#2563EB"; // blue
 
 const ROUTE_HALO = {
   color: "#0b1a3a",
@@ -164,6 +170,24 @@ function routeHaloStyle({ zoom }) {
 function plannedRouteStyle({ zoom, color }) {
   const base = strokeWeightForZoom(zoom, { min: 5, max: 9 });
   return { color, weight: base, opacity: 1.0, dashArray: "12 10", lineCap: "round", lineJoin: "round" };
+}
+
+/**
+ * Derives a route status used for map styling (former Planned layer).
+ * Uses the same strict completion criteria used elsewhere:
+ * - Completed: all points covered AND all tasks completed
+ * - In Progress: some progress on points or tasks, but not strictly completed
+ * - Not Started: no completed stops and no completed tasks
+ */
+function getRouteCompletionStatus(route, scopedState) {
+  const criteria = computeRouteCompletionCriteriaForRoute(route, scopedState?.tasks || []);
+
+  if (criteria?.isCompleted) return "Completed";
+
+  const hasAnyProgress = Number(criteria?.completedStops || 0) > 0 || Number(criteria?.completedTasks || 0) > 0;
+  if (hasAnyProgress) return "In Progress";
+
+  return "Not Started";
 }
 
 function actualPathStyle({ zoom, color }) {
@@ -1180,7 +1204,6 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
               {activeRoutes.map((r) => {
                 const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
-                const color = routeColorById[r.id] || "#1E3A8A";
 
                 const waypointMeta = routesWaypointMetaByRouteId.get(r.id);
                 const snapKey = waypointMeta?.key || "";
@@ -1198,8 +1221,17 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                 if (plannedPositions.length < 2) return null;
 
+                // Status-based styling for the former Planned layer.
+                const routeStatus = getRouteCompletionStatus(r, scopedState);
+                const statusColor =
+                  routeStatus === "Completed"
+                    ? STATUS_COMPLETED_GREEN
+                    : routeStatus === "In Progress"
+                      ? STATUS_IN_PROGRESS_YELLOW
+                      : STATUS_NOT_STARTED_BLUE;
+
                 const haloStyle = routeHaloStyle({ zoom: mapZoom });
-                const plannedStyle = plannedRouteStyle({ zoom: mapZoom, color });
+                const plannedStyle = plannedRouteStyle({ zoom: mapZoom, color: statusColor });
                 const actualStyle = actualPathStyle({ zoom: mapZoom, color: ACTUAL_BLUE });
                 const deviationStyle = deviationOverlayStyle({ zoom: mapZoom });
                 const sel = selectionHighlightStyle({ zoom: mapZoom });
@@ -1209,7 +1241,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                 return (
                   <React.Fragment key={`route_stack_${r.id}`}>
-                    {/* Planned route (dashed) + halo */}
+                    {/* Former planned route layer (still dashed), now status-colored + halo */}
                     <Polyline positions={plannedPositions} pathOptions={haloStyle} interactive={false} />
 
                     <Polyline
@@ -1220,7 +1252,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           // Preserve existing selection behavior (filters other panels, highlights route).
                           onSelectRouteId?.(r.id);
 
-                          // Replace Leaflet inline popup (shrinks in map) with app-level modal.
+                          // Preserve existing click behavior: open app-level modal.
                           setRouteDetailsModalRouteId(r.id);
                         },
                       }}
@@ -1233,7 +1265,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                               width: 10,
                               height: 10,
                               borderRadius: 99,
-                              background: color,
+                              background: statusColor,
                               border: "1px solid rgba(17,24,39,0.25)",
                             }}
                           />
@@ -1241,7 +1273,20 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </div>
 
                         <div className="mini">
-                          Planned: <strong>dashed</strong> · Actual: <strong style={{ color: ACTUAL_BLUE }}>blue</strong> · Deviations:{" "}
+                          Status:{" "}
+                          <strong
+                            style={{
+                              color:
+                                routeStatus === "Completed"
+                                  ? STATUS_COMPLETED_GREEN
+                                  : routeStatus === "In Progress"
+                                    ? STATUS_IN_PROGRESS_YELLOW
+                                    : STATUS_NOT_STARTED_BLUE,
+                            }}
+                          >
+                            {routeStatus}
+                          </strong>{" "}
+                          · Actual: <strong style={{ color: ACTUAL_BLUE }}>blue</strong> · Deviations:{" "}
                           <strong style={{ color: DEVIATION_RED }}>red</strong>
                         </div>
 
@@ -1422,10 +1467,56 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   Map layers
                 </div>
 
-                <div className="mini">
-                  Planned route: <strong>dashed</strong>
+                <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)" }}>
+                  Route status (dashed)
                 </div>
-                <div className="mini">
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 22,
+                      height: 0,
+                      borderTop: `4px dashed ${STATUS_COMPLETED_GREEN}`,
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>
+                    Completed: <strong style={{ color: STATUS_COMPLETED_GREEN }}>green</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 22,
+                      height: 0,
+                      borderTop: `4px dashed ${STATUS_IN_PROGRESS_YELLOW}`,
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>
+                    In Progress: <strong style={{ color: STATUS_IN_PROGRESS_YELLOW }}>yellow</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 22,
+                      height: 0,
+                      borderTop: `4px dashed ${STATUS_NOT_STARTED_BLUE}`,
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>
+                    Not Started: <strong style={{ color: STATUS_NOT_STARTED_BLUE }}>blue</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ marginTop: 6 }}>
                   Actual route: <strong style={{ color: ACTUAL_BLUE }}>solid (blue)</strong>
                 </div>
                 <div className="mini">
