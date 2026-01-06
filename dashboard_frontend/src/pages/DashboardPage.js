@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Roles } from "../data/dummyData";
 import { computeAllocationSummary, computeDprSnapshot } from "../state/domainStore";
@@ -13,6 +13,7 @@ import AllocationPanel from "../components/AllocationPanel";
 import ExceptionsPanel from "../components/ExceptionsPanel";
 import Modal from "../components/Modal";
 import RouteCompletionCard from "../components/RouteCompletionCard";
+import { getLastRefreshMeta, runDummyRefreshOnce } from "../state/dummyRefresh";
 
 function pct(n) {
   return `${Math.round(Number(n || 0))}%`;
@@ -20,6 +21,15 @@ function pct(n) {
 
 function miniButtonStyle() {
   return { padding: "8px 10px", fontSize: 12 };
+}
+
+function fmtTime(iso) {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch {
+    return iso;
+  }
 }
 
 // PUBLIC_INTERFACE
@@ -30,14 +40,23 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
   const [activeModal, setActiveModal] = useState(""); // "allocation" | "exceptions" | "compliance" | ""
 
   const todayIso = useMemo(() => new Date().toISOString(), []);
+
+  // Dummy refresh controls
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [lastRefreshAt, setLastRefreshAt] = useState(() => getLastRefreshMeta()?.lastRefreshedAt || "");
+
   const allocationSummary = useMemo(
     () => computeAllocationSummary(fullState, scopedState, { dateIso: todayIso }),
     [fullState, scopedState, todayIso]
   );
-  const dprSnapshot = useMemo(() => computeDprSnapshot(fullState, currentUser, { dateIso: todayIso }), [fullState, currentUser, todayIso]);
+  const dprSnapshot = useMemo(
+    () => computeDprSnapshot(fullState, currentUser, { dateIso: todayIso }),
+    [fullState, currentUser, todayIso]
+  );
 
   const complianceSnapshot = useMemo(() => {
     // Persist once per day so drill-down views remain stable across navigation.
+    // Note: This can be recomputed on refresh only if there isn't already a snapshot for today.
     return ensureComplianceComputed(fullState, { dateIso: todayIso });
   }, [fullState, todayIso]);
 
@@ -47,6 +66,24 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
   const [complianceFilterSeverity, setComplianceFilterSeverity] = useState("");
   const [complianceSort, setComplianceSort] = useState("severity"); // severity | engineer | route
+
+  // 30s refresh loop (simulated API polling)
+  useEffect(() => {
+    if (!autoRefreshEnabled) return undefined;
+
+    const refresh = () => {
+      const res = runDummyRefreshOnce(fullState);
+      if (res.ok) {
+        setFullState(res.state);
+        setLastRefreshAt(res.refreshedAt);
+      }
+    };
+
+    // Do not auto-refresh immediately on mount; keep UI stable until first interval tick.
+    const id = window.setInterval(refresh, 30_000);
+
+    return () => window.clearInterval(id);
+  }, [autoRefreshEnabled, fullState, setFullState]);
 
   function exportDprSnapshotCsv() {
     const rows = [
@@ -70,10 +107,43 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     downloadCsv({ filename: `dpr_snapshot_${dprSnapshot.date}.csv`, csvText: csv });
   }
 
+  function manualRefreshNow() {
+    const res = runDummyRefreshOnce(fullState);
+    if (res.ok) {
+      setFullState(res.state);
+      setLastRefreshAt(res.refreshedAt);
+    }
+  }
+
   return (
     <div className="content">
       {/* Top: full-width map */}
       <div data-testid="dashboard-map">
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="splitRow" style={{ alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 900 }}>Live dummy feed</div>
+              <div className="mini">
+                Auto-refresh: <strong>{autoRefreshEnabled ? "ON" : "PAUSED"}</strong> · Last refresh:{" "}
+                <strong>{fmtTime(lastRefreshAt)}</strong>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                className={autoRefreshEnabled ? "btn btnGhost" : "btn btnPrimary"}
+                style={miniButtonStyle()}
+                onClick={() => setAutoRefreshEnabled((v) => !v)}
+                aria-label="Toggle dummy auto-refresh"
+              >
+                {autoRefreshEnabled ? "Pause auto-refresh" : "Resume auto-refresh"}
+              </button>
+              <button className="btn btnGhost" style={miniButtonStyle()} onClick={manualRefreshNow}>
+                Refresh now
+              </button>
+            </div>
+          </div>
+        </div>
+
         <MapPanel
           scopedState={scopedState}
           selectedRouteId={selectedRouteId}
@@ -330,8 +400,8 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
                           f.severity === ComplianceSeverity.HIGH
                             ? "badge badgeError"
                             : f.severity === ComplianceSeverity.MEDIUM
-                            ? "badge badgeWarn"
-                            : "badge"
+                              ? "badge badgeWarn"
+                              : "badge"
                         }
                       >
                         {f.severity.toUpperCase()}

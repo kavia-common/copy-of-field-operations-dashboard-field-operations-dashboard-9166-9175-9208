@@ -1,10 +1,15 @@
 import React, { useMemo } from "react";
-import { MapContainer, Marker, Polyline, TileLayer, Tooltip } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import { useMap } from "react-leaflet";
 
 /**
  * Leaflet (React-Leaflet) map panel: renders markers for engineers and polylines for routes.
+ *
+ * Enhancements:
+ * - Shows each engineer's assigned route as a per-engineer polyline overlay (slightly thinner than the base route).
+ * - Shows route waypoints (checkpoints) as small circle markers.
+ * - Engineer markers update as the domain store refreshes dummy locations (every 30s on Dashboard).
  *
  * Notes:
  * - Uses OpenStreetMap tiles (no API keys required).
@@ -26,8 +31,12 @@ function toLatLngs(polyline = []) {
     .map((p) => [p.lat, p.lng]);
 }
 
+function getEngineer(scopedState, engineerId) {
+  return (scopedState?.users || []).find((x) => x.id === engineerId) || null;
+}
+
 function getEngineerName(scopedState, engineerId) {
-  const u = (scopedState?.users || []).find((x) => x.id === engineerId);
+  const u = getEngineer(scopedState, engineerId);
   return u?.name || engineerId;
 }
 
@@ -44,6 +53,14 @@ function routeToStyle(route, isSelected, complianceTone) {
   if (completion >= 90) return { color: "#059669", weight: 4, opacity: 0.95 };
   if (completion >= 60) return { color: "#F59E0B", weight: 4, opacity: 0.9 };
   return { color: "#DC2626", weight: 4, opacity: 0.9 };
+}
+
+function engineerRouteOverlayStyle(severity) {
+  // Keep severity emphasis but slightly lighter than main route, so base route colors remain primary.
+  if (severity === "high") return { color: "#DC2626", weight: 3, opacity: 0.9, dashArray: "6 6" };
+  if (severity === "medium") return { color: "#F59E0B", weight: 3, opacity: 0.85, dashArray: "6 6" };
+  if (severity === "low") return { color: "#111827", weight: 3, opacity: 0.8, dashArray: "4 6" };
+  return { color: "#1E3A8A", weight: 3, opacity: 0.55 };
 }
 
 // PUBLIC_INTERFACE
@@ -71,6 +88,11 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     return scopedState.engineerLiveLocations || [];
   }, [scopedState]);
 
+  const assignments = useMemo(() => {
+    if (!scopedState) return [];
+    return scopedState.engineerAssignments || [];
+  }, [scopedState]);
+
   const worstSeverityByEngineer = useMemo(() => {
     return complianceSnapshot?.perEngineerWorstSeverity || {};
   }, [complianceSnapshot]);
@@ -86,6 +108,51 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     });
     return map;
   }, [complianceSnapshot]);
+
+  const routeById = useMemo(() => {
+    const m = new Map();
+    (activeRoutes || []).forEach((r) => m.set(r.id, r));
+    return m;
+  }, [activeRoutes]);
+
+  const engineerAssignmentsByEngineerId = useMemo(() => {
+    const m = new Map();
+    (assignments || []).forEach((a) => m.set(a.engineerId, a.routeId));
+    return m;
+  }, [assignments]);
+
+  const engineerRouteOverlays = useMemo(() => {
+    // Build a per-engineer overlay polyline for their assigned route.
+    // This allows users to see each engineer's “intended route” and ties the marker to a route context.
+    return (activeLocations || [])
+      .map((loc) => {
+        const routeId = engineerAssignmentsByEngineerId.get(loc.engineerId);
+        const route = routeId ? routeById.get(routeId) : null;
+        const positions = toLatLngs(route?.polyline || []);
+        return {
+          engineerId: loc.engineerId,
+          routeId: route?.id || "",
+          routeName: route?.name || "",
+          positions,
+        };
+      })
+      .filter((x) => x.positions.length >= 2);
+  }, [activeLocations, engineerAssignmentsByEngineerId, routeById]);
+
+  const waypointLayers = useMemo(() => {
+    // Waypoints are the polyline vertices (for this dummy app).
+    // We render them as subtle circles to show checkpoints.
+    return (activeRoutes || [])
+      .map((r) => {
+        const pts = (r.polyline || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+        return {
+          routeId: r.id,
+          routeName: r.name,
+          points: pts.map((p, idx) => ({ id: `${r.id}_wp_${idx}`, ...p, idx })),
+        };
+      })
+      .filter((x) => x.points.length > 0);
+  }, [activeRoutes]);
 
   const latLngsForBounds = useMemo(() => {
     const pts = [];
@@ -125,7 +192,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       <div className="cardHeader">
         <div>
           <h2>Map Overview</h2>
-          <p>Engineer locations and route polylines</p>
+          <p>Engineer locations, route polylines, and checkpoints</p>
         </div>
         <span className="badge">Maps: Open-source</span>
       </div>
@@ -154,13 +221,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
           </div>
         ) : (
           <>
-            <MapContainer
-              center={initialCenter}
-              zoom={12}
-              scrollWheelZoom
-              style={{ height: "100%", width: "100%" }}
-              preferCanvas
-            >
+            <MapContainer center={initialCenter} zoom={12} scrollWheelZoom style={{ height: "100%", width: "100%" }} preferCanvas>
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -168,6 +229,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
               {bounds && <FitToVisible bounds={bounds} />}
 
+              {/* Base route polylines (completion + compliance coloring preserved) */}
               {activeRoutes.map((r) => {
                 const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
                 const complianceTone = worstSeverityByRoute[r.id] || "";
@@ -178,7 +240,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                 return (
                   <Polyline
-                    key={r.id}
+                    key={`route_${r.id}`}
                     positions={positions}
                     pathOptions={style}
                     eventHandlers={{
@@ -204,27 +266,103 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 );
               })}
 
+              {/* Waypoints (route checkpoints) */}
+              {waypointLayers.map((layer) => {
+                const isSelected = selectedRouteId ? layer.routeId === selectedRouteId : false;
+                // Show all waypoints, but slightly emphasize when selected.
+                const radius = isSelected ? 5 : 4;
+                const opacity = isSelected ? 0.9 : 0.55;
+
+                return layer.points.map((wp) => (
+                  <CircleMarker
+                    key={wp.id}
+                    center={[wp.lat, wp.lng]}
+                    radius={radius}
+                    pathOptions={{
+                      color: "rgba(17,24,39,0.65)",
+                      fillColor: "#FFFFFF",
+                      fillOpacity: opacity,
+                      weight: 1,
+                    }}
+                  >
+                    <Tooltip direction="top" opacity={0.95}>
+                      <div style={{ fontWeight: 900 }}>{layer.routeName}</div>
+                      <div className="mini">Checkpoint #{wp.idx + 1}</div>
+                      <div className="mini">
+                        Lat/Lng: {wp.lat.toFixed(4)}, {wp.lng.toFixed(4)}
+                      </div>
+                    </Tooltip>
+                  </CircleMarker>
+                ));
+              })}
+
+              {/* Per-engineer route overlay (thin) */}
+              {engineerRouteOverlays.map((o) => {
+                const sev = worstSeverityByEngineer?.[o.engineerId] || "";
+                const style = engineerRouteOverlayStyle(sev);
+
+                return (
+                  <Polyline key={`eng_route_${o.engineerId}`} positions={o.positions} pathOptions={style}>
+                    <Tooltip sticky direction="top" opacity={0.95}>
+                      <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, o.engineerId)}</div>
+                      <div className="mini">
+                        Assigned route: <strong>{o.routeName || o.routeId || "Unassigned"}</strong>
+                      </div>
+                      {sev ? (
+                        <div className="mini">
+                          Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
+                        </div>
+                      ) : null}
+                    </Tooltip>
+                  </Polyline>
+                );
+              })}
+
+              {/* Engineer markers (update positions on store refresh) */}
               {activeLocations.map((loc) => {
                 if (!Number.isFinite(loc?.lat) || !Number.isFinite(loc?.lng)) return null;
 
                 const name = getEngineerName(scopedState, loc.engineerId);
                 const sev = worstSeverityByEngineer?.[loc.engineerId] || "";
                 const ringClass =
-                  sev === "high" ? "oceanEngineerMarkerRingHigh" : sev === "medium" ? "oceanEngineerMarkerRingMed" : sev ? "oceanEngineerMarkerRingLow" : "";
+                  sev === "high"
+                    ? "oceanEngineerMarkerRingHigh"
+                    : sev === "medium"
+                      ? "oceanEngineerMarkerRingMed"
+                      : sev
+                        ? "oceanEngineerMarkerRingLow"
+                        : "";
+
+                const eng = getEngineer(scopedState, loc.engineerId);
+                const routeId = engineerAssignmentsByEngineerId.get(loc.engineerId) || "";
+                const routeName = routeById.get(routeId)?.name || "";
 
                 // Use a small, high-contrast pin to match Ocean Professional theme.
                 const icon = L.divIcon({
                   className: "oceanEngineerMarker",
-                  html: `<div class="oceanEngineerMarkerDot" aria-hidden="true"></div>${sev ? `<div class="oceanEngineerMarkerRing ${ringClass}" aria-hidden="true"></div>` : ""}`,
+                  html: `<div class="oceanEngineerMarkerDot" aria-hidden="true"></div>${
+                    sev ? `<div class="oceanEngineerMarkerRing ${ringClass}" aria-hidden="true"></div>` : ""
+                  }`,
                   iconSize: [18, 18],
                   iconAnchor: [9, 9],
                 });
 
                 return (
-                  <Marker key={loc.engineerId} position={[loc.lat, loc.lng]} icon={icon}>
+                  <Marker
+                    key={loc.engineerId}
+                    position={[loc.lat, loc.lng]}
+                    icon={icon}
+                    riseOnHover
+                  >
                     <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
                       <div style={{ fontWeight: 900 }}>{name}</div>
                       <div className="mini">{loc.engineerId}</div>
+                      <div className="mini">
+                        Region: <strong>{eng?.regionId || "—"}</strong>
+                      </div>
+                      <div className="mini">
+                        Route: <strong>{routeName || routeId || "Unassigned"}</strong>
+                      </div>
                       {sev ? (
                         <div className="mini">
                           Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
@@ -268,6 +406,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     <span className="mini">{l.label}</span>
                   </div>
                 ))}
+                <div className="mini" style={{ marginTop: 6 }}>
+                  Checkpoints are shown as <strong>small circles</strong>. Each engineer has a thin assigned-route overlay.
+                </div>
                 {selectedRouteId && (
                   <div className="mini" style={{ marginTop: 6 }}>
                     Selected route is highlighted in <strong>navy</strong>.
@@ -292,7 +433,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       {activeRoutes.length > 0 && (
         <div className="mini" style={{ marginTop: 10 }}>
-          Route colors reflect completion derived from planned/completed stops.
+          Route colors reflect completion derived from planned/completed stops. Compliance alerts use dashed emphasis.
         </div>
       )}
     </div>
