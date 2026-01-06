@@ -173,6 +173,27 @@ function plannedRouteStyle({ zoom, color }) {
 }
 
 /**
+ * Top stroke for the status layer.
+ * Requirement: keep dashed styling on top for recognizability, but make the stroke color encode
+ * "Actual vs Deviation":
+ *  - Actual = blue
+ *  - Deviation = red
+ *
+ * The "status" itself is encoded via the wide underlay/body (plannedRouteFillStyle).
+ */
+function statusStrokeStyle({ zoom, strokeColor }) {
+  const base = strokeWeightForZoom(zoom, { min: 5, max: 9 });
+  return {
+    color: strokeColor,
+    weight: base,
+    opacity: 1.0,
+    dashArray: "12 10",
+    lineCap: "round",
+    lineJoin: "round",
+  };
+}
+
+/**
  * Creates a filled-looking dashed route using layered polylines.
  *
  * Leaflet polylines don't support a true "fill" like polygons. To make the status color
@@ -1254,24 +1275,34 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       : STATUS_NOT_STARTED_BLUE;
 
                 const haloStyle = routeHaloStyle({ zoom: mapZoom });
+
+                // Underlay/body encodes STATUS (fill).
                 const plannedFillStyle = plannedRouteFillStyle({ zoom: mapZoom, color: statusColor });
-                const plannedStyle = plannedRouteStyle({ zoom: mapZoom, color: statusColor });
+
+                // Top dashed stroke encodes LAYER meaning (Actual vs Deviation).
+                const deviationSegments = buildDeviationSegmentsForRoute(complianceSnapshot, r.id);
+                const showDeviationForRoute = Boolean(hasDeviationByRouteId?.[r.id]);
+                const topStrokeColor = showDeviationForRoute ? DEVIATION_RED : ACTUAL_BLUE;
+
+                const plannedStrokeStyle = statusStrokeStyle({ zoom: mapZoom, strokeColor: topStrokeColor });
+
                 const actualStyle = actualPathStyle({ zoom: mapZoom, color: ACTUAL_BLUE });
                 const deviationStyle = deviationOverlayStyle({ zoom: mapZoom });
                 const sel = selectionHighlightStyle({ zoom: mapZoom });
 
-                const deviationSegments = buildDeviationSegmentsForRoute(complianceSnapshot, r.id);
-                const showDeviationForRoute = Boolean(hasDeviationByRouteId?.[r.id]);
-
                 return (
                   <React.Fragment key={`route_stack_${r.id}`}>
-                    {/* Status (former planned) route layer: halo + filled body + dashed stroke */}
+                    {/* Route rendering stack:
+                        1) Halo (contrast) - neutral
+                        2) Status body "fill" - STATUS color
+                        3) Dashed top stroke - encodes Actual vs Deviation (blue/red)
+                    */}
                     <Polyline positions={plannedPositions} pathOptions={haloStyle} interactive={false} />
                     <Polyline positions={plannedPositions} pathOptions={plannedFillStyle} interactive={false} />
 
                     <Polyline
                       positions={plannedPositions}
-                      pathOptions={plannedStyle}
+                      pathOptions={plannedStrokeStyle}
                       eventHandlers={{
                         click: () => {
                           // Preserve existing selection behavior (filters other panels, highlights route).
@@ -1291,14 +1322,15 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                               height: 10,
                               borderRadius: 99,
                               background: statusColor,
-                              border: "1px solid rgba(17,24,39,0.25)",
+                              border: `2px solid ${topStrokeColor}`,
+                              boxShadow: "0 0 0 1px rgba(255,255,255,0.85) inset",
                             }}
                           />
                           <div style={{ fontWeight: 900 }}>{r.name}</div>
                         </div>
 
                         <div className="mini">
-                          Status:{" "}
+                          Status (fill):{" "}
                           <strong
                             style={{
                               color:
@@ -1310,9 +1342,16 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             }}
                           >
                             {routeStatus}
-                          </strong>{" "}
-                          · Actual: <strong style={{ color: ACTUAL_BLUE }}>blue</strong> · Deviations:{" "}
-                          <strong style={{ color: DEVIATION_RED }}>red</strong>
+                          </strong>
+                        </div>
+
+                        <div className="mini">
+                          Stroke meaning:{" "}
+                          {showDeviationForRoute ? (
+                            <strong style={{ color: DEVIATION_RED }}>Deviation (red)</strong>
+                          ) : (
+                            <strong style={{ color: ACTUAL_BLUE }}>Actual (blue)</strong>
+                          )}
                         </div>
 
                         {snapKey ? (
@@ -1332,13 +1371,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                         {showDeviationForRoute ? (
                           <div className="mini">
-                            Deviation: <strong style={{ color: DEVIATION_RED }}>flagged</strong>
+                            Deviation flags: <strong style={{ color: DEVIATION_RED }}>present</strong>
                             {deviationSegments.length === 0 ? " (no segment geometry)" : ""}
                           </div>
                         ) : (
                           <div className="mini">
-                            Deviation:{" "}
-                            <strong style={{ color: "var(--ocean-muted)" }}>No deviations</strong>
+                            Deviation flags: <strong style={{ color: "var(--ocean-muted)" }}>none</strong>
                           </div>
                         )}
 
@@ -1346,18 +1384,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       </Tooltip>
                     </Polyline>
 
+                    {/* Preserve existing overlays (kept for clarity and existing behavior): */}
                     {/* Actual path (solid blue) */}
                     {actualPositions.length >= 2 ? <Polyline positions={actualPositions} pathOptions={actualStyle} interactive={false} /> : null}
 
                     {/* Deviations overlay (solid red segments, when geometry is available) */}
                     {deviationSegments.length > 0
                       ? deviationSegments.map((seg, idx) => (
-                          <Polyline
-                            key={`dev_${r.id}_${idx}`}
-                            positions={seg}
-                            pathOptions={deviationStyle}
-                            interactive={false}
-                          />
+                          <Polyline key={`dev_${r.id}_${idx}`} positions={seg} pathOptions={deviationStyle} interactive={false} />
                         ))
                       : null}
 
@@ -1501,7 +1535,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 </div>
 
                 <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)" }}>
-                  Route status (dashed)
+                  Status fill (body)
                 </div>
 
                 <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1512,8 +1546,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       height: 10,
                       display: "inline-block",
                       borderRadius: 999,
-                      background: `linear-gradient(to bottom, transparent 0%, transparent 30%, color-mix(in srgb, ${STATUS_COMPLETED_GREEN} 28%, transparent) 30%, color-mix(in srgb, ${STATUS_COMPLETED_GREEN} 28%, transparent) 70%, transparent 70%, transparent 100%)`,
-                      borderTop: `4px dashed ${STATUS_COMPLETED_GREEN}`,
+                      background: `color-mix(in srgb, ${STATUS_COMPLETED_GREEN} 32%, transparent)`,
+                      border: `2px solid ${ACTUAL_BLUE}`,
                     }}
                   />
                   <span>
@@ -1529,8 +1563,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       height: 10,
                       display: "inline-block",
                       borderRadius: 999,
-                      background: `linear-gradient(to bottom, transparent 0%, transparent 30%, color-mix(in srgb, ${STATUS_IN_PROGRESS_YELLOW} 28%, transparent) 30%, color-mix(in srgb, ${STATUS_IN_PROGRESS_YELLOW} 28%, transparent) 70%, transparent 70%, transparent 100%)`,
-                      borderTop: `4px dashed ${STATUS_IN_PROGRESS_YELLOW}`,
+                      background: `color-mix(in srgb, ${STATUS_IN_PROGRESS_YELLOW} 32%, transparent)`,
+                      border: `2px solid ${ACTUAL_BLUE}`,
                     }}
                   />
                   <span>
@@ -1546,8 +1580,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       height: 10,
                       display: "inline-block",
                       borderRadius: 999,
-                      background: `linear-gradient(to bottom, transparent 0%, transparent 30%, color-mix(in srgb, ${STATUS_NOT_STARTED_BLUE} 28%, transparent) 30%, color-mix(in srgb, ${STATUS_NOT_STARTED_BLUE} 28%, transparent) 70%, transparent 70%, transparent 100%)`,
-                      borderTop: `4px dashed ${STATUS_NOT_STARTED_BLUE}`,
+                      background: `color-mix(in srgb, ${STATUS_NOT_STARTED_BLUE} 32%, transparent)`,
+                      border: `2px solid ${ACTUAL_BLUE}`,
                     }}
                   />
                   <span>
@@ -1555,13 +1589,41 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   </span>
                 </div>
 
+                <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)", marginTop: 6 }}>
+                  Stroke meaning (top dashed)
+                </div>
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 26,
+                      height: 0,
+                      borderTop: `4px dashed ${ACTUAL_BLUE}`,
+                      borderRadius: 999,
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>
+                    Actual: <strong style={{ color: ACTUAL_BLUE }}>blue</strong>
+                  </span>
+                </div>
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 26,
+                      height: 0,
+                      borderTop: `4px dashed ${DEVIATION_RED}`,
+                      borderRadius: 999,
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>
+                    Deviation: <strong style={{ color: DEVIATION_RED }}>red</strong>
+                  </span>
+                </div>
+
                 <div className="mini" style={{ marginTop: 6 }}>
-                  Actual route: <strong style={{ color: ACTUAL_BLUE }}>solid (blue)</strong>
-                </div>
-                <div className="mini">
-                  Deviations: <strong style={{ color: DEVIATION_RED }}>solid (red)</strong>
-                </div>
-                <div className="mini">
                   Waypoints: <strong>white markers</strong>
                 </div>
 
@@ -1647,7 +1709,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
             <Modal
               open={Boolean(routeDetailsModalRouteId && routePopupDetails)}
               title={`Route Details — ${routePopupDetails?.routeName || ""}`}
-              description="Expanded route completion, deviation, and engineer notes (updates on refresh)."
+              description="Expanded route completion, deviation, and engineer notes (map styling: status=fill color; actual/deviation=stroke color)."
               onClose={() => setRouteDetailsModalRouteId("")}
               maxWidth={1080}
               footer={
