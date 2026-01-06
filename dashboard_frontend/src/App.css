@@ -620,7 +620,55 @@
   width: 100%;
 }
 
+/* Map legend positioning (Ocean theme) */
+.mapLegend {
+  position: absolute;
+  z-index: calc(var(--z-map) + 2); /* above map tiles/polylines, below modal overlay tokens */
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--ocean-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow-sm);
+  max-width: 420px;
+  min-width: 260px;
+  /* Prevent large content from covering too much map area */
+  max-height: calc(100% - 24px);
+  overflow: hidden;
+}
 
+.mapLegendLeft {
+  left: 12px;
+  top: 12px;
+}
+
+/* Internal scroll area already exists in JSX; this helps overall legend remain bounded */
+.mapLegend .mini,
+.mapLegend div {
+  min-width: 0;
+}
+
+/* Safe area so top-right Leaflet controls (zoom/fullscreen/custom) never overlap content */
+.mapLegendSafeRight {
+  padding-right: 64px; /* typical control width (40px) + margins; keeps legend readable */
+}
+
+/* On small screens, avoid blocking the map by docking the legend to the bottom */
+@media (max-width: 560px) {
+  .mapLegend {
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: 10px;
+    max-width: none;
+    min-width: 0;
+    border-radius: 14px;
+  }
+
+  /* When docked at bottom, no need to reserve right-side space */
+  .mapLegendSafeRight {
+    padding-right: 0;
+  }
+}
 
 /* Ocean Professional map controls (custom + plugin-friendly) */
 .oceanMapControlGroup {

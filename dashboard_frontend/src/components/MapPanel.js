@@ -1863,23 +1863,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
               })}
             </MapContainer>
 
-            {/* Status strip (top-left) */}
-            <div
-              className="mapLegend"
-              aria-label="Live route compliance status"
-              style={{
-                position: "absolute",
-                left: 12,
-                top: 12,
-                background: "rgba(255,255,255,0.92)",
-                border: "1px solid var(--ocean-border)",
-                borderRadius: 12,
-                padding: "10px 12px",
-                boxShadow: "var(--shadow-sm)",
-                maxWidth: 420,
-                minWidth: 260,
-              }}
-            >
+            {/* Status strip / legend (left side, responsive; avoids overlapping top-right controls) */}
+            <div className="mapLegend mapLegendLeft" aria-label="Live route compliance status">
+              {/* Reserve space on the right so Leaflet top-right controls never overlap legend content */}
+              <div className="mapLegendSafeRight">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div style={{ fontWeight: 900, fontSize: 12 }}>Live Status</div>
 
@@ -2047,6 +2034,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   Planned route snapping: <strong>OSRM best-effort</strong>
                 </div>
               ) : null}
+              </div>
             </div>
 
             <Modal
