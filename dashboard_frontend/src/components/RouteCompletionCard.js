@@ -64,7 +64,7 @@ export default function RouteCompletionCard({ scopedState }) {
         <div className="kpi">
           <div className="kpiLabel">Overall completion</div>
           <div className="kpiValue">{pct(metrics.overallCompletionPercent)}</div>
-          <div className="kpiSub">Weighted by planned stops</div>
+          <div className="kpiSub">Based on route counts</div>
         </div>
       </div>
 

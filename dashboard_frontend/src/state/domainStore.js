@@ -508,7 +508,13 @@ export function computeRouteCompletionMinimalMetrics(scopedState) {
    * Computes minimal route completion metrics for dashboard display:
    * - routes completed (count)
    * - routes remaining (count)
-   * - overall completion percent (weighted by planned/completed stops)
+   * - overall completion percent (based on route counts)
+   *
+   * IMPORTANT:
+   * For the simplified RouteCompletionCard, the overall % must align with the displayed counts.
+   * We therefore define:
+   *   total_routes = completed_routes + remaining_routes
+   *   completion_pct = round((completed_routes / total_routes) * 100)
    *
    * This intentionally excludes any exception/compliance details.
    */
@@ -518,13 +524,16 @@ export function computeRouteCompletionMinimalMetrics(scopedState) {
   const completedRoutes = routesList.filter((r) => Number(r.completion_percent || 0) >= ROUTE_COMPLETED_THRESHOLD_PCT).length;
   const remainingRoutes = Math.max(0, totalRoutes - completedRoutes);
 
-  const overall = computeOverallRouteCompletion(routesList);
+  // completion_pct = round((completed_routes / total_routes) * 100)
+  // where total_routes is derived from the same source as the counts above.
+  const denom = completedRoutes + remainingRoutes;
+  const overallCompletionPercent = denom <= 0 ? 0 : clampPct((completedRoutes / denom) * 100);
 
   return {
     totalRoutes,
     completedRoutes,
     remainingRoutes,
-    overallCompletionPercent: overall.completionPercent,
+    overallCompletionPercent,
   };
 }
 
