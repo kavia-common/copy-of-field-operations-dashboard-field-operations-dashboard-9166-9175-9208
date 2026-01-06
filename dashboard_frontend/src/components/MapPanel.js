@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from "react";
-import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import { useMap } from "react-leaflet";
 
@@ -38,6 +38,50 @@ function getEngineer(scopedState, engineerId) {
 function getEngineerName(scopedState, engineerId) {
   const u = getEngineer(scopedState, engineerId);
   return u?.name || engineerId;
+}
+
+function getRegionName(scopedState, regionId) {
+  const r = (scopedState?.regions || []).find((x) => x.id === regionId);
+  return r?.name || regionId || "";
+}
+
+function getRegionalManagerName(scopedState, regionId) {
+  // In dummy data: Regional Manager users are keyed by regionId.
+  const rm = (scopedState?.users || []).find((u) => u.role === "Regional Manager" && u.regionId === regionId);
+  return rm?.name || rm?.id || "";
+}
+
+function completionTone(route) {
+  const completion = Number(route?.completion_percent || 0);
+  if (completion >= 90) return "success";
+  if (completion >= 60) return "warn";
+  return "error";
+}
+
+function complianceBadgeColor(severity) {
+  if (severity === "high") return { bg: "rgba(220,38,38,0.12)", fg: "#DC2626", border: "rgba(220,38,38,0.35)" };
+  if (severity === "medium") return { bg: "rgba(245,158,11,0.14)", fg: "#B45309", border: "rgba(245,158,11,0.45)" };
+  if (severity === "low") return { bg: "rgba(17,24,39,0.08)", fg: "#111827", border: "rgba(17,24,39,0.22)" };
+  return { bg: "rgba(30,58,138,0.10)", fg: "#1E3A8A", border: "rgba(30,58,138,0.25)" };
+}
+
+function completionBadgeColor(tone) {
+  if (tone === "success") return { bg: "rgba(5,150,105,0.12)", fg: "#059669", border: "rgba(5,150,105,0.35)" };
+  if (tone === "warn") return { bg: "rgba(245,158,11,0.14)", fg: "#B45309", border: "rgba(245,158,11,0.45)" };
+  return { bg: "rgba(220,38,38,0.12)", fg: "#DC2626", border: "rgba(220,38,38,0.35)" };
+}
+
+function fmtOrDash(v) {
+  return v ? v : "—";
+}
+
+function toTitleRule(rule) {
+  return String(rule || "")
+    .replaceAll("_", " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0]?.toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 function routeToStyle(route, isSelected, complianceTone) {
@@ -369,8 +413,28 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         : "";
 
                 const eng = getEngineer(scopedState, loc.engineerId);
+                const regionId = eng?.regionId || "";
+                const regionName = getRegionName(scopedState, regionId);
+                const regionalManager = getRegionalManagerName(scopedState, regionId);
+
                 const routeId = engineerAssignmentsByEngineerId.get(loc.engineerId) || "";
-                const routeName = routeById.get(routeId)?.name || "";
+                const route = routeId ? routeById.get(routeId) : null;
+                const routeName = route?.name || "";
+
+                const plannedStops = Number(route?.planned_stops || 0);
+                const completedStops = Number(route?.completed_stops || 0);
+                const completionPercent = Number(route?.completion_percent || 0);
+                const completionSummary =
+                  plannedStops > 0 ? `${completedStops}/${plannedStops} (${completionPercent}%)` : route ? `${completionPercent}%` : "";
+
+                const flags = complianceSnapshot?.flags || [];
+                const engineerFlags = flags
+                  .filter((f) => f.engineerId === loc.engineerId)
+                  .slice()
+                  .sort((a, b) => {
+                    const sevRank = { high: 3, medium: 2, low: 1 };
+                    return (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0);
+                  });
 
                 // Use a small, high-contrast pin to match Ocean Professional theme.
                 const icon = L.divIcon({
@@ -381,6 +445,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   iconSize: [18, 18],
                   iconAnchor: [9, 9],
                 });
+
+                const completionToneKey = completionTone(route);
+                const completionColors = completionBadgeColor(completionToneKey);
+                const alertColors = complianceBadgeColor(sev);
 
                 return (
                   <Marker
@@ -393,11 +461,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       markerRefs.current.set(loc.engineerId, ref);
                     }}
                   >
+                    {/* Keep tooltip for quick glance on hover */}
                     <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
                       <div style={{ fontWeight: 900 }}>{name}</div>
                       <div className="mini">{loc.engineerId}</div>
                       <div className="mini">
-                        Region: <strong>{eng?.regionId || "—"}</strong>
+                        Region: <strong>{regionId || "—"}</strong>
                       </div>
                       <div className="mini">
                         Route: <strong>{routeName || routeId || "Unassigned"}</strong>
@@ -413,6 +482,139 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </div>
                       ) : null}
                     </Tooltip>
+
+                    {/* Rich popup on click (updates as state refreshes) */}
+                    <Popup maxWidth={320} minWidth={260} autoPan>
+                      <div style={{ display: "grid", gap: 10 }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                          <div>
+                            <div style={{ fontWeight: 950, fontSize: 14, color: "var(--ocean-text)" }}>
+                              Engineer: {fmtOrDash(name)}
+                            </div>
+                            <div className="mini" style={{ marginTop: 2 }}>
+                              ID: <strong>{fmtOrDash(loc.engineerId)}</strong>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                            <span
+                              className="badge"
+                              style={{
+                                background: completionColors.bg,
+                                color: completionColors.fg,
+                                border: `1px solid ${completionColors.border}`,
+                                fontWeight: 900,
+                              }}
+                            >
+                              {route ? `${completionPercent}%` : "Unassigned"}
+                            </span>
+
+                            {sev ? (
+                              <span
+                                className="badge"
+                                style={{
+                                  background: alertColors.bg,
+                                  color: alertColors.fg,
+                                  border: `1px solid ${alertColors.border}`,
+                                  fontWeight: 900,
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                {sev} alert
+                              </span>
+                            ) : (
+                              <span
+                                className="badge"
+                                style={{
+                                  background: "rgba(5,150,105,0.10)",
+                                  color: "#059669",
+                                  border: "1px solid rgba(5,150,105,0.28)",
+                                  fontWeight: 900,
+                                }}
+                              >
+                                No alerts
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ borderTop: "1px solid var(--ocean-border)", paddingTop: 10, display: "grid", gap: 6 }}>
+                          <div className="mini">
+                            Regional manager: <strong>{fmtOrDash(regionalManager)}</strong>
+                          </div>
+                          <div className="mini">
+                            Region: <strong>{fmtOrDash(regionName || regionId)}</strong>
+                          </div>
+                          <div className="mini">
+                            Current route: <strong>{fmtOrDash(routeName || routeId)}</strong>
+                          </div>
+                          <div className="mini">
+                            Completion: <strong>{fmtOrDash(completionSummary)}</strong>
+                          </div>
+                        </div>
+
+                        <div style={{ borderTop: "1px solid var(--ocean-border)", paddingTop: 10 }}>
+                          <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 6, color: "var(--ocean-text)" }}>
+                            Active alerts
+                          </div>
+
+                          {engineerFlags.length === 0 ? (
+                            <div className="mini">—</div>
+                          ) : (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              {engineerFlags.slice(0, 5).map((f) => {
+                                const c = complianceBadgeColor(f.severity);
+                                return (
+                                  <div
+                                    key={f.id}
+                                    style={{
+                                      display: "grid",
+                                      gap: 4,
+                                      padding: "8px 10px",
+                                      borderRadius: 10,
+                                      border: `1px solid ${c.border}`,
+                                      background: c.bg,
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                      <div style={{ fontWeight: 900, fontSize: 12, color: c.fg }}>
+                                        {String(f.severity || "").toUpperCase()}
+                                      </div>
+                                      <div className="mini" style={{ color: "rgba(17,24,39,0.8)" }}>
+                                        {fmtOrDash(toTitleRule(f.rule))}
+                                      </div>
+                                    </div>
+                                    <div className="mini" style={{ color: "rgba(17,24,39,0.9)" }}>
+                                      {fmtOrDash(f.message)}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {engineerFlags.length > 5 ? (
+                                <div className="mini" style={{ opacity: 0.85 }}>
+                                  +{engineerFlags.length - 5} more
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+
+                          {focusDeviation?.engineerId === loc.engineerId ? (
+                            <div
+                              className="mini"
+                              style={{
+                                marginTop: 10,
+                                fontWeight: 900,
+                                color: "var(--ocean-error)",
+                                borderTop: "1px dashed var(--ocean-border)",
+                                paddingTop: 10,
+                              }}
+                            >
+                              New deviation: {String(focusDeviation.rule || "").replaceAll("_", " ")}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </Popup>
                   </Marker>
                 );
               })}
