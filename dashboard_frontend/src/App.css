@@ -565,12 +565,21 @@
 }
 
 .mapBox {
+  /* Fixed height for dashboard layout; min-height prevents collapse in flex/grid edge cases. */
   height: 420px;
+  min-height: 320px;
+
   border-radius: var(--radius-md);
   border: 1px solid var(--ocean-border);
   overflow: hidden;
   background: linear-gradient(135deg, rgba(30, 58, 138, 0.06), rgba(245, 158, 11, 0.05));
   position: relative;
+}
+
+/* Explicitly ensure Leaflet’s internal container fills the mapBox. */
+.mapBox .leaflet-container {
+  height: 100%;
+  width: 100%;
 }
 
 /* Ocean Professional map controls (custom + plugin-friendly) */

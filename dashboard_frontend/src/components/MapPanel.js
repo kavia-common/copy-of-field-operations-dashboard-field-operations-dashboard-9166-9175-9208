@@ -1,7 +1,6 @@
 import React, { useMemo, useRef } from "react";
-import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
-import { useMap } from "react-leaflet";
 import { createPortal } from "react-dom";
 
 // Optional plugin: fullscreen control (adds L.control.fullscreen)
@@ -114,6 +113,32 @@ function engineerRouteOverlayStyle(severity) {
   if (severity === "medium") return { color: "#F59E0B", weight: 3, opacity: 0.85, dashArray: "6 6" };
   if (severity === "low") return { color: "#111827", weight: 3, opacity: 0.8, dashArray: "4 6" };
   return { color: "#1E3A8A", weight: 3, opacity: 0.55 };
+}
+
+/**
+ * Forces Leaflet to recompute its layout when the map first mounts and when its container may have resized.
+ * This is a common fix for “blank/grey tiles”, misaligned layers, or partially-rendered maps when the map
+ * is mounted inside cards/grids/flex containers or when fullscreen toggles occur.
+ */
+// PUBLIC_INTERFACE
+function InvalidateSizeOnMountAndResize({ triggerKey }) {
+  /** Calls map.invalidateSize() shortly after mount and when triggerKey changes. */
+  const map = useMap();
+
+  React.useEffect(() => {
+    // Schedule on next frame so the DOM has a chance to settle.
+    const raf = window.requestAnimationFrame(() => {
+      try {
+        map.invalidateSize();
+      } catch {
+        // no-op: should never break map rendering
+      }
+    });
+
+    return () => window.cancelAnimationFrame(raf);
+  }, [map, triggerKey]);
+
+  return null;
 }
 
 // PUBLIC_INTERFACE
@@ -471,6 +496,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
+
+              {/* Ensure tiles/layers render correctly when mounted in a responsive card/grid layout. */}
+              <InvalidateSizeOnMountAndResize triggerKey={bounds ? bounds.toBBoxString?.() || "bounds" : "no_bounds"} />
 
               {/* Keep existing auto-fit behavior; no change to refresh behavior. */}
               {bounds && <FitToVisible bounds={bounds} />}
