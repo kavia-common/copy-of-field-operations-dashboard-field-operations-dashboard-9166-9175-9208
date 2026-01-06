@@ -15,22 +15,23 @@ function rowStyle() {
 }
 
 // PUBLIC_INTERFACE
-export default function EngineerAllocationCard({ scopedState, dateIso }) {
+export default function EngineerAllocationCard({ scopedState, dateIso, onShowDetails }) {
   /**
-   * Dashboard KPI card: Engineer Allocation (simplified).
+   * Dashboard KPI card: Engineer Allocation (uniform-height).
    *
-   * Spec:
-   *  - Badge/pill: Total Engineers
-   *  - Two rows only: Active and Inactive
+   * Required:
+   *  - Total badge: Total Engineers
+   *  - Two rows: Active / Inactive
    *
-   * Definitions:
-   *  - Active: on-duty/online engineers (best-effort from dummy data)
-   *  - Inactive: off-duty/offline engineers (best-effort from dummy data)
+   * Additional compact helper:
+   *  - Clarify that Active is best-effort derived from location/assignment/tasks.
+   *
+   * Drill-down trigger renamed to "Show details" and delegated to parent via onShowDetails.
    */
   const counts = useMemo(() => selectEngineerAllocationCounts(scopedState, { dateIso }), [scopedState, dateIso]);
 
   return (
-    <div className="card" aria-label="Engineer Allocation">
+    <div className="card kpiCardFixed" aria-label="Engineer Allocation KPI card">
       <div className="cardHeader">
         <div>
           <h2>Engineer Allocation</h2>
@@ -42,20 +43,30 @@ export default function EngineerAllocationCard({ scopedState, dateIso }) {
         </span>
       </div>
 
-      <div style={{ display: "grid", gap: 10 }}>
-        <div style={rowStyle()}>
-          <div style={{ fontWeight: 900 }}>Active</div>
-          <div style={{ fontWeight: 950, fontSize: 18, color: "var(--ocean-success)" }}>{counts.activeCount}</div>
+      <div className="kpiCardBody">
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={rowStyle()}>
+            <div style={{ fontWeight: 900 }}>Active</div>
+            <div style={{ fontWeight: 950, fontSize: 18, color: "var(--ocean-success)" }}>{counts.activeCount}</div>
+          </div>
+
+          <div style={rowStyle()}>
+            <div style={{ fontWeight: 900 }}>Inactive</div>
+            <div style={{ fontWeight: 950, fontSize: 18, color: "var(--ocean-muted)" }}>{counts.inactiveCount}</div>
+          </div>
         </div>
 
-        <div style={rowStyle()}>
-          <div style={{ fontWeight: 900 }}>Inactive</div>
-          <div style={{ fontWeight: 950, fontSize: 18, color: "var(--ocean-muted)" }}>{counts.inactiveCount}</div>
+        <div className="mini" style={{ marginTop: 10 }}>
+          Helper: Active is inferred from live location, assignments, or tasks due today; Inactive indicates none detected.
         </div>
       </div>
 
-      <div className="mini" style={{ marginTop: 10 }}>
-        Active represents on-duty/online engineers; Inactive represents off-duty/offline engineers.
+      <div className="kpiCardFooter">
+        <div className="splitRow" style={{ marginTop: 10 }}>
+          <button className="btn btnGhost detailsLink" onClick={() => onShowDetails?.()} aria-label="Show allocation details">
+            Show details
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -256,6 +256,28 @@
   min-width: 0;
 }
 
+/* KPI cards on Dashboard: enforce consistent height and a stable internal layout */
+.kpiCardFixed {
+  height: 260px; /* fixed uniform height across Route Completion / Tasks / Engineer Allocation */
+  display: flex;
+  flex-direction: column;
+}
+
+.kpiCardBody {
+  flex: 1;
+  min-height: 0;
+}
+
+.kpiCardFooter {
+  margin-top: auto;
+}
+
+.detailsLink {
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .cardHeader {
   display: flex;
   align-items: center;

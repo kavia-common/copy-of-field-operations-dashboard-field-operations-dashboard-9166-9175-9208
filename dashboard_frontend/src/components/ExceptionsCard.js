@@ -1,6 +1,10 @@
 import React, { useMemo } from "react";
 import { selectTaskCountsByStatus } from "../state/domainStore";
 
+function pct(n) {
+  return `${Math.round(Number(n || 0))}%`;
+}
+
 function toneToBadgeClass(tone) {
   if (tone === "success") return "badge badgeSuccess";
   if (tone === "error") return "badge badgeError";
@@ -16,34 +20,33 @@ function tasksTone({ rejected, redo }) {
 }
 
 // PUBLIC_INTERFACE
-export default function ExceptionsCard({ scopedState, dateIso }) {
+export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) {
   /**
-   * Dashboard "Tasks" KPI card (simplified).
+   * Dashboard "Tasks" KPI card (uniform-height).
    *
-   * Shows:
-   *  - Total tasks (badge): sum of the same scoped tasks used by the KPI tiles below
-   *  - Completed (tasks due today that are marked completed)
-   *  - Rejected (tasks due today with status rejected)
-   *  - Redo (tasks due today with status redo)
+   * Required KPIs:
+   *  - Completed
+   *  - Rejected
+   *  - Redo
+   *  - Total badge retained
    *
-   * Note: This card is scoped by permissions (scopedState) AND date-scoped by task dueDate
-   * (same scoping used elsewhere).
+   * Additional compact data:
+   *  - Completion rate (completed / total) helper subtext.
+   *
+   * Drill-down trigger renamed to "Show details" and delegated to parent via onShowDetails.
    */
   const counts = useMemo(() => selectTaskCountsByStatus(scopedState, { dateIso }), [scopedState, dateIso]);
   const tone = tasksTone(counts);
 
-  // Total tasks must match the same scope/date criteria used for the other counts.
   const totalTasks = Number(counts.completed || 0) + Number(counts.rejected || 0) + Number(counts.redo || 0);
+  const completionRate = totalTasks ? (Number(counts.completed || 0) / totalTasks) * 100 : 0;
 
   return (
-    <div className="card">
+    <div className="card kpiCardFixed" aria-label="Tasks KPI card">
       <div className="cardHeader">
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0 }}>Tasks</h2>
-          <span className="badge" aria-label="Total tasks due today in current scope">
-            Total: <strong>{totalTasks}</strong>
-          </span>
-          <p style={{ margin: 0, width: "100%" }}>Today&apos;s task outcomes ({counts.date})</p>
+        <div>
+          <h2>Tasks</h2>
+          <p>Today&apos;s outcomes ({counts.date})</p>
         </div>
 
         <span className={toneToBadgeClass(tone)} aria-label="Total tasks due today in current scope">
@@ -51,33 +54,45 @@ export default function ExceptionsCard({ scopedState, dateIso }) {
         </span>
       </div>
 
-      <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-        <div className="kpi">
-          <div className="kpiLabel">Completed</div>
-          <div className="kpiValue">{counts.completed}</div>
-          <div className="kpiSub">Marked completed</div>
+      <div className="kpiCardBody">
+        <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+          <div className="kpi">
+            <div className="kpiLabel">Completed</div>
+            <div className="kpiValue">{counts.completed}</div>
+            <div className="kpiSub">{pct(completionRate)} completion</div>
+          </div>
+
+          <div className="kpi">
+            <div className="kpiLabel">Rejected</div>
+            <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
+              {counts.rejected}
+            </div>
+            <div className="kpiSub">Needs review</div>
+          </div>
+
+          <div className="kpi">
+            <div className="kpiLabel">Redo</div>
+            <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
+              {counts.redo}
+            </div>
+            <div className="kpiSub">Rework required</div>
+          </div>
         </div>
 
-        <div className="kpi">
-          <div className="kpiLabel">Rejected</div>
-          <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
-            {counts.rejected}
-          </div>
-          <div className="kpiSub">Needs review</div>
-        </div>
+        <hr className="hr" />
 
-        <div className="kpi">
-          <div className="kpiLabel">Redo</div>
-          <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
-            {counts.redo}
-          </div>
-          <div className="kpiSub">Rework required</div>
+        <div className="mini">
+          Helper: totals reflect tasks <strong>due today</strong> within your current scope (role/region filtering applied).
         </div>
       </div>
 
-      <hr className="hr" />
-
-      <div className="mini">Notes: Tasks overview</div>
+      <div className="kpiCardFooter">
+        <div className="splitRow" style={{ marginTop: 10 }}>
+          <button className="btn btnGhost detailsLink" onClick={() => onShowDetails?.()} aria-label="Show task details">
+            Show details
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

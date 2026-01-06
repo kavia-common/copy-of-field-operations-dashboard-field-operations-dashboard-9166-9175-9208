@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Roles } from "../data/dummyData";
-import { computeAllocationSummary, computeDprSnapshot } from "../state/domainStore";
+import { computeAllocationSummary, computeDprSnapshot, computeRouteCompletionSummary, selectTasksDueOnDate } from "../state/domainStore";
 import {
   ComplianceSeverity,
   ensureComplianceComputed,
@@ -36,12 +36,17 @@ function fmtTime(iso) {
   }
 }
 
+function safeNum(n) {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : 0;
+}
+
 // PUBLIC_INTERFACE
 export default function DashboardPage({ scopedState, fullState, setFullState, currentUser }) {
   /** Dashboard page showing map + key operational metric cards with drill-down modals. */
   const navigate = useNavigate();
   const [selectedRouteId, setSelectedRouteId] = useState("");
-  const [activeModal, setActiveModal] = useState(""); // "allocation" | "compliance" | "non_compliance" | ""
+  const [activeModal, setActiveModal] = useState(""); // "allocation" | "compliance" | "non_compliance" | "route_details" | "tasks_details" | "engineer_details" | ""
   const [toastQueue, setToastQueue] = useState([]);
   const [focusDeviation, setFocusDeviation] = useState(null);
 
@@ -156,7 +161,26 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     downloadCsv({ filename: `dpr_snapshot_${dprSnapshot.date}.csv`, csvText: csv });
   }
 
+  const routeCompletionDetails = useMemo(() => computeRouteCompletionSummary(scopedState, { dateIso: todayIso }), [scopedState, todayIso]);
 
+  const tasksToday = useMemo(() => selectTasksDueOnDate(scopedState, { dateIso: todayIso }), [scopedState, todayIso]);
+
+  const tasksDetails = useMemo(() => {
+    const completed = tasksToday.filter((t) => t.status === "completed").length;
+    const rejected = tasksToday.filter((t) => t.status === "rejected").length;
+    const redo = tasksToday.filter((t) => t.status === "redo").length;
+    const total = tasksToday.length;
+    const completionRate = total ? Math.round((completed / total) * 100) : 0;
+
+    // Quick lists (compact): show the most recent 8 exceptions (rejected/redo)
+    const exceptions = tasksToday
+      .filter((t) => t.status === "rejected" || t.status === "redo")
+      .slice()
+      .reverse()
+      .slice(0, 8);
+
+    return { total, completed, rejected, redo, completionRate, exceptions };
+  }, [tasksToday]);
 
   return (
     <div className="content">
@@ -209,36 +233,27 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
       {/* Bottom: metric cards */}
       <div className="dashboardMetricsGrid" data-testid="dashboard-metrics">
-        {/* 1) Route Completion (completion-only + drill-down) */}
+        {/* 1) Route Completion */}
         <section aria-label="Route completion summary" data-testid="metric-route-completion">
-          <RouteCompletionCard scopedState={scopedState} dateIso={todayIso} />
+          <RouteCompletionCard
+            scopedState={scopedState}
+            dateIso={todayIso}
+            onShowDetails={() => setActiveModal("route_details")}
+          />
         </section>
 
-        {/* 2) Tasks (completed / rejected / redo) */}
+        {/* 2) Tasks */}
         <section aria-label="Tasks summary" data-testid="metric-tasks">
-          <ExceptionsCard scopedState={scopedState} dateIso={todayIso} />
+          <ExceptionsCard scopedState={scopedState} dateIso={todayIso} onShowDetails={() => setActiveModal("tasks_details")} />
         </section>
 
-        {/* 3) Engineer Allocation (metrics per spec) */}
+        {/* 3) Engineer Allocation */}
         <section aria-label="Engineer allocation metrics" data-testid="metric-allocation">
-          <EngineerAllocationCard scopedState={scopedState} dateIso={todayIso} />
-
-          {/* Keep existing drill-down entry points for allocation management */}
-          <div className="splitRow" style={{ marginTop: 10 }}>
-            <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => setActiveModal("allocation")}>
-              Drill down
-            </button>
-
-            <Link className="btn btnGhost" style={miniButtonStyle()} to="/allocation" aria-label="Go to Allocation page">
-              Go to Allocation
-            </Link>
-          </div>
-
-          {!canManageAllocation ? (
-            <div className="mini" style={{ marginTop: 10 }}>
-              Allocation management is restricted to Admin / Regional Manager. You can view allocation details read-only here.
-            </div>
-          ) : null}
+          <EngineerAllocationCard
+            scopedState={scopedState}
+            dateIso={todayIso}
+            onShowDetails={() => setActiveModal("engineer_details")}
+          />
         </section>
 
         {/* 4) DPR Snapshot */}
@@ -260,9 +275,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
             <div className="kpi">
               <div className="kpiLabel">Completed</div>
               <div className="kpiValue">{dprSnapshot.completed}</div>
-              <div className="kpiSub">
-                {pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion
-              </div>
+              <div className="kpiSub">{pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion</div>
             </div>
             <div className="kpi">
               <div className="kpiLabel">On hold</div>
@@ -337,7 +350,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
         <div className="splitRow">
           <button className="btn btnGhost" style={miniButtonStyle()} onClick={() => setActiveModal("non_compliance")}>
-            Drill down
+            Show details
           </button>
           <button
             className="btn btnGhost"
@@ -345,9 +358,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
             onClick={() => {
               // Quick focus: pick the highest severity flag if any
               const sevRank = { high: 3, medium: 2, low: 1 };
-              const best = [...(complianceSnapshot?.flags || [])].sort(
-                (a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0)
-              )[0];
+              const best = [...(complianceSnapshot?.flags || [])].sort((a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0))[0];
               if (best) {
                 setFocusDeviation({
                   engineerId: best.engineerId,
@@ -368,10 +379,155 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         </div>
       </section>
 
-      {/* Allocation drill-down modal (reuse AllocationPanel read-only if needed) */}
+      {/* Route Completion details modal */}
       <Modal
-        open={activeModal === "allocation"}
-        title="Allocation Drill-down"
+        open={activeModal === "route_details"}
+        title="Route Completion — Details"
+        description="Route-level stop progress for today’s scope."
+        onClose={() => setActiveModal("")}
+        maxWidth={1100}
+        footer={
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button className="btn btnGhost" onClick={() => setActiveModal("")}>
+              Done
+            </button>
+          </div>
+        }
+      >
+        <div className="tableWrap">
+          <table className="table" aria-label="Route completion details table" style={{ minWidth: 920 }}>
+            <thead>
+              <tr>
+                <th>Route</th>
+                <th style={{ width: 140 }}>Planned</th>
+                <th style={{ width: 140 }}>Completed</th>
+                <th style={{ width: 140 }}>Remaining</th>
+                <th style={{ width: 170 }}>Completion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(routeCompletionDetails?.perRoute || []).map((r) => (
+                <tr key={r.routeId}>
+                  <td style={{ fontWeight: 800 }}>{r.routeName}</td>
+                  <td>{safeNum(r.planned)}</td>
+                  <td>{safeNum(r.completed)}</td>
+                  <td>{safeNum(r.remaining)}</td>
+                  <td className="mini">{pct(r.completionPercent)}</td>
+                </tr>
+              ))}
+              {(routeCompletionDetails?.perRoute || []).length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="mini">
+                    No routes available in the current scope.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <hr className="hr" />
+        <div className="mini">Overall completion is computed from stops completed vs planned (aggregated across routes).</div>
+      </Modal>
+
+      {/* Tasks details modal */}
+      <Modal
+        open={activeModal === "tasks_details"}
+        title="Tasks — Details"
+        description="Today’s task outcomes and recent exceptions."
+        onClose={() => setActiveModal("")}
+        maxWidth={1100}
+        footer={
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button className="btn btnGhost" onClick={() => setActiveModal("")}>
+              Done
+            </button>
+            <button className="btn btnPrimary" onClick={() => navigate("/tasks")}>
+              Go to Tasks
+            </button>
+          </div>
+        }
+      >
+        <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+          <div className="kpi">
+            <div className="kpiLabel">Total</div>
+            <div className="kpiValue">{tasksDetails.total}</div>
+            <div className="kpiSub">Due today</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">Completed</div>
+            <div className="kpiValue">{tasksDetails.completed}</div>
+            <div className="kpiSub">{tasksDetails.completionRate}% completion</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">Rejected</div>
+            <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
+              {tasksDetails.rejected}
+            </div>
+            <div className="kpiSub">Needs review</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">Redo</div>
+            <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
+              {tasksDetails.redo}
+            </div>
+            <div className="kpiSub">Rework required</div>
+          </div>
+        </div>
+
+        <hr className="hr" />
+
+        <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          Recent exceptions
+        </div>
+
+        <div className="tableWrap">
+          <table className="table" aria-label="Recent task exceptions table" style={{ minWidth: 980 }}>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Task</th>
+                <th>Engineer</th>
+                <th>Route</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasksDetails.exceptions.map((t) => {
+                const engineer = scopedState?.users?.find((u) => u.id === t.engineerId);
+                const route = scopedState?.routes?.find((r) => r.id === t.routeId);
+                const reason = t.status === "rejected" ? t.rejection_reason : t.redo_reason;
+
+                return (
+                  <tr key={t.id}>
+                    <td>
+                      <span className={t.status === "rejected" ? "badge badgeError" : "badge badgeWarn"}>
+                        {String(t.status).toUpperCase()}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 800 }}>{t.title}</td>
+                    <td>{engineer?.name || t.engineerId}</td>
+                    <td>{route?.name || t.routeId}</td>
+                    <td className="mini">{reason || "—"}</td>
+                  </tr>
+                );
+              })}
+              {tasksDetails.exceptions.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="mini">
+                    No rejected/redo tasks for today in the current scope.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+
+      {/* Engineer Allocation details modal (reuses existing allocation drill-down) */}
+      <Modal
+        open={activeModal === "engineer_details" || activeModal === "allocation"}
+        title="Engineer Allocation — Details"
         description={canManageAllocation ? "Manage allocations here or open the full Allocation page." : "Read-only allocation visibility."}
         onClose={() => setActiveModal("")}
         maxWidth={1200}
@@ -477,9 +633,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
                     <td className="mini">{f.message}</td>
                   </tr>
                 ))}
-              {(complianceSnapshot?.flags || []).filter((f) =>
-                complianceFilterSeverity ? f.severity === complianceFilterSeverity : true
-              ).length === 0 ? (
+              {(complianceSnapshot?.flags || []).filter((f) => (complianceFilterSeverity ? f.severity === complianceFilterSeverity : true)).length === 0 ? (
                 <tr>
                   <td colSpan={5} className="mini">
                     No compliance alerts for the current filters.

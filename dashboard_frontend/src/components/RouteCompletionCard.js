@@ -20,58 +20,73 @@ function completionTone(completionPercent) {
 }
 
 // PUBLIC_INTERFACE
-export default function RouteCompletionCard({ scopedState }) {
+export default function RouteCompletionCard({ scopedState, dateIso, onShowDetails }) {
   /**
-   * Minimal Route Completion dashboard card.
+   * Route Completion dashboard card (compact + uniform-height).
    *
-   * Shows only:
-   *  1) Routes completed
-   *  2) Routes remaining
-   *  3) Overall completion %
+   * Required visible KPIs:
+   *  - Completed
+   *  - To be completed (remaining)
+   *  - Overall % (badge retained)
+   * Plus: a small helper subtext.
    *
-   * Drill-down is intentionally disabled because route-level breakdown is handled elsewhere
-   * (map + other operational views), and exceptions/compliance are surfaced in dedicated sections.
+   * Drill-down trigger renamed to "Show details" and delegated to parent via onShowDetails.
    */
   const metrics = useMemo(() => computeRouteCompletionMinimalMetrics(scopedState), [scopedState]);
   const overallTone = completionTone(metrics.overallCompletionPercent);
 
   return (
-    <div className="card">
+    <div className="card kpiCardFixed" aria-label="Route Completion KPI card">
       <div className="cardHeader">
         <div>
           <h2>Route Completion</h2>
           <p>Overall route progress</p>
         </div>
 
-        <span className={toneToBadgeClass(overallTone)}>
+        <span className={toneToBadgeClass(overallTone)} aria-label="Overall route completion percent">
           Overall: <strong>{pct(metrics.overallCompletionPercent)}</strong>
         </span>
       </div>
 
-      <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
-        <div className="kpi">
-          <div className="kpiLabel">Routes completed</div>
-          <div className="kpiValue">{metrics.completedRoutes}</div>
-          <div className="kpiSub">All points covered + all tasks done</div>
+      <div className="kpiCardBody">
+        <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+          <div className="kpi">
+            <div className="kpiLabel">Completed</div>
+            <div className="kpiValue">{metrics.completedRoutes}</div>
+            <div className="kpiSub">Routes fully closed</div>
+          </div>
+
+          <div className="kpi">
+            <div className="kpiLabel">To be completed</div>
+            <div className="kpiValue">{metrics.remainingRoutes}</div>
+            <div className="kpiSub">Still in progress</div>
+          </div>
+
+          <div className="kpi">
+            <div className="kpiLabel">Total routes</div>
+            <div className="kpiValue">{metrics.totalRoutes}</div>
+            <div className="kpiSub">In current scope</div>
+          </div>
         </div>
 
-        <div className="kpi">
-          <div className="kpiLabel">Routes remaining</div>
-          <div className="kpiValue">{metrics.remainingRoutes}</div>
-          <div className="kpiSub">Not yet complete</div>
-        </div>
+        <hr className="hr" />
 
-        <div className="kpi">
-          <div className="kpiLabel">Overall completion</div>
-          <div className="kpiValue">{pct(metrics.overallCompletionPercent)}</div>
-          <div className="kpiSub">Based on route counts</div>
+        <div className="mini">
+          Helper: a route counts as <strong>completed</strong> only when all planned stops are covered and all tasks on the route are
+          completed.
         </div>
       </div>
 
-      <hr className="hr" />
-
-      <div className="mini">
-        Notes: a route is marked completed only when all route points are covered and all tasks on that route are completed.
+      <div className="kpiCardFooter">
+        <div className="splitRow" style={{ marginTop: 10 }}>
+          <button
+            className="btn btnGhost detailsLink"
+            onClick={() => onShowDetails?.()}
+            aria-label="Show route completion details"
+          >
+            Show details
+          </button>
+        </div>
       </div>
     </div>
   );
