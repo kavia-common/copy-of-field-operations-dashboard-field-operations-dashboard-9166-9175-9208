@@ -175,6 +175,35 @@ function makePinSvg({ fill, stroke = "rgba(17,24,39,0.35)", glyph = "", glyphCol
   </svg>`;
 }
 
+function makeGoogleMapsStyleDestinationSvg() {
+  /**
+   * A Google Maps–style destination pin:
+   * - red outer pin
+   * - white inner circle
+   * - small red dot in the center
+   *
+   * Implemented as inline SVG so we don't introduce new dependencies or alter layer behavior.
+   */
+  return `
+  <svg width="34" height="50" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="destination marker">
+    <defs>
+      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="rgba(17,24,39,0.30)" />
+      </filter>
+    </defs>
+
+    <g filter="url(#shadow)">
+      <!-- Pin body -->
+      <path d="M17 49 C17 49 31 32.5 31 19.5 C31 8.9 24.1 2 17 2 C9.9 2 3 8.9 3 19.5 C3 32.5 17 49 17 49 Z"
+        fill="#EA4335" stroke="rgba(17,24,39,0.18)" stroke-width="1.2"/>
+      <!-- Inner white circle -->
+      <circle cx="17" cy="19.5" r="8.8" fill="#FFFFFF"/>
+      <!-- Center dot -->
+      <circle cx="17" cy="19.5" r="3.2" fill="#EA4335"/>
+    </g>
+  </svg>`;
+}
+
 function makeDotSvg({ fill, stroke = "rgba(17,24,39,0.30)" }) {
   return `
   <svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="waypoint">
@@ -182,20 +211,25 @@ function makeDotSvg({ fill, stroke = "rgba(17,24,39,0.30)" }) {
   </svg>`;
 }
 
-const engineerDivIcon = L.divIcon({
-  className: "oceanMarker oceanMarkerEngineer",
-  html: makePinSvg({ fill: "#0F766E", glyph: "E", glyphColor: "#111827" }),
-  iconSize: [30, 40],
-  iconAnchor: [15, 39],
-  tooltipAnchor: [0, -28],
+/**
+ * Engineer marker should use the uploaded image.
+ * Placed in /public/assets so it can be referenced by URL at runtime.
+ */
+const engineerImageIcon = L.icon({
+  iconUrl: "/assets/engineer-marker.png",
+  iconRetinaUrl: "/assets/engineer-marker.png",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+  tooltipAnchor: [0, -34],
+  // Shadow intentionally omitted (uploaded image already has a clean silhouette).
 });
 
 const destinationDivIcon = L.divIcon({
   className: "oceanMarker oceanMarkerDestination",
-  html: makePinSvg({ fill: WAYPOINT_DESTINATION, glyph: "D", glyphColor: "#111827" }),
-  iconSize: [30, 40],
-  iconAnchor: [15, 39],
-  tooltipAnchor: [0, -28],
+  html: makeGoogleMapsStyleDestinationSvg(),
+  iconSize: [34, 50],
+  iconAnchor: [17, 49],
+  tooltipAnchor: [0, -34],
 });
 
 function makeWaypointIcon({ status }) {
@@ -1690,7 +1724,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <Marker
                     key={`eng_${engineerId}`}
                     position={[loc.lat, loc.lng]}
-                    icon={engineerDivIcon}
+                    icon={engineerImageIcon}
                     opacity={opacity}
                     interactive
                   >
