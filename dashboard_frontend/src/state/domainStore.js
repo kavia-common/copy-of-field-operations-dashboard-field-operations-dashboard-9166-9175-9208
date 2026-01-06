@@ -496,11 +496,43 @@ export function computeRouteCompletionWithExceptionsSummary(
 // Route Completion-only selector (separated from exceptions/compliance).
 //
 
+/**
+ * A route is considered "completed" when completion_percent >= 95.
+ * This matches the rest of the UI (map coloring + DPR route completion).
+ */
+const ROUTE_COMPLETED_THRESHOLD_PCT = 95;
+
+// PUBLIC_INTERFACE
+export function computeRouteCompletionMinimalMetrics(scopedState) {
+  /**
+   * Computes minimal route completion metrics for dashboard display:
+   * - routes completed (count)
+   * - routes remaining (count)
+   * - overall completion percent (weighted by planned/completed stops)
+   *
+   * This intentionally excludes any exception/compliance details.
+   */
+  const routesList = scopedState?.routes || [];
+  const totalRoutes = routesList.length;
+
+  const completedRoutes = routesList.filter((r) => Number(r.completion_percent || 0) >= ROUTE_COMPLETED_THRESHOLD_PCT).length;
+  const remainingRoutes = Math.max(0, totalRoutes - completedRoutes);
+
+  const overall = computeOverallRouteCompletion(routesList);
+
+  return {
+    totalRoutes,
+    completedRoutes,
+    remainingRoutes,
+    overallCompletionPercent: overall.completionPercent,
+  };
+}
+
 // PUBLIC_INTERFACE
 export function computeRouteCompletionOnlySummary(scopedState, { dateIso } = {}) {
   /**
    * Computes per-route completion metrics only (no rejected/redo or compliance).
-   * Used by the dedicated Route Completion dashboard card and drill-down.
+   * Used by the dedicated Route Completion dashboard card and any completion-only drill-down.
    */
   return computeRouteCompletionSummary(scopedState, { dateIso });
 }
