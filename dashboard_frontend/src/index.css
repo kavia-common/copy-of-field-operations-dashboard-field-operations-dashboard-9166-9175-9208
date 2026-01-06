@@ -53,3 +53,44 @@ select {
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
+
+/* Leaflet: ensure map tiles fill the container and look crisp within cards */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+
+/* Ocean Professional themed engineer marker (small dot with navy stroke + amber fill) */
+.oceanEngineerMarker {
+  /* Prevent Leaflet from applying default icon styles */
+  background: transparent;
+  border: none;
+}
+
+.oceanEngineerMarkerDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--ocean-secondary);
+  border: 2px solid var(--ocean-primary);
+  box-shadow: 0 6px 14px rgba(17, 24, 39, 0.18);
+}
+
+/* Friendly empty state for the map area */
+.mapEmpty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.mapEmpty .mapFallbackInner {
+  max-width: 520px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--ocean-border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}

@@ -1,157 +1,96 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Loader } from "@googlemaps/js-api-loader";
-import { computeRouteStatus } from "../state/domainStore";
+import React, { useMemo } from "react";
+import { MapContainer, Marker, Polyline, TileLayer, Tooltip } from "react-leaflet";
+import L from "leaflet";
+import { useMap } from "react-leaflet";
 
 /**
- * Google Maps panel: renders markers for engineers and polylines for routes.
- * Graceful fallback if REACT_APP_GOOGLE_MAPS_API_KEY is missing.
+ * Leaflet (React-Leaflet) map panel: renders markers for engineers and polylines for routes.
+ *
+ * Notes:
+ * - Uses OpenStreetMap tiles (no API keys required).
+ * - Click a route polyline to select it (filters other panels via selectedRouteId).
+ * - Auto-fits viewport to visible markers/routes. If no data, shows a friendly empty state.
  */
+
+// Fix for default Leaflet marker icons in bundlers (CRA) where the default icon URL resolution breaks.
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
+
+function toLatLngs(polyline = []) {
+  return (polyline || [])
+    .filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng))
+    .map((p) => [p.lat, p.lng]);
+}
+
+function getEngineerName(scopedState, engineerId) {
+  const u = (scopedState?.users || []).find((x) => x.id === engineerId);
+  return u?.name || engineerId;
+}
+
+function routeToStyle(route, isSelected) {
+  if (isSelected) return { color: "#1E3A8A", weight: 5, opacity: 1.0 };
+
+  const completion = Number(route.completion_percent || 0);
+  // green >= 90, amber 60-89, red < 60
+  if (completion >= 90) return { color: "#059669", weight: 4, opacity: 0.95 };
+  if (completion >= 60) return { color: "#F59E0B", weight: 4, opacity: 0.9 };
+  return { color: "#DC2626", weight: 4, opacity: 0.9 };
+}
+
+// PUBLIC_INTERFACE
+function FitToVisible({ bounds }) {
+  /** Fits the Leaflet map viewport to the given bounds when bounds changes. */
+  const map = useMap();
+
+  React.useEffect(() => {
+    if (!bounds) return;
+    // Fit with padding to avoid legend overlay and card padding.
+    map.fitBounds(bounds, { padding: [40, 40] });
+  }, [bounds, map]);
+
+  return null;
+}
+
 export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId }) {
-  const mapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const markersRef = useRef([]);
-  const polylinesRef = useRef([]);
-
-  const [mapsEnabled, setMapsEnabled] = useState(false);
-  const [mapsError, setMapsError] = useState("");
-
-  const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
-
   const activeRoutes = useMemo(() => {
     if (!scopedState) return [];
-    return scopedState.routes;
+    return scopedState.routes || [];
   }, [scopedState]);
 
   const activeLocations = useMemo(() => {
     if (!scopedState) return [];
-    return scopedState.engineerLiveLocations;
+    return scopedState.engineerLiveLocations || [];
   }, [scopedState]);
 
-  const center = useMemo(() => {
-    // center on first visible location, else default US center-ish
+  const latLngsForBounds = useMemo(() => {
+    const pts = [];
+    activeLocations.forEach((loc) => {
+      if (Number.isFinite(loc?.lat) && Number.isFinite(loc?.lng)) pts.push([loc.lat, loc.lng]);
+    });
+    activeRoutes.forEach((r) => {
+      toLatLngs(r.polyline).forEach((p) => pts.push(p));
+    });
+    return pts;
+  }, [activeLocations, activeRoutes]);
+
+  const hasAnyGeo = latLngsForBounds.length > 0;
+
+  const bounds = useMemo(() => {
+    if (!hasAnyGeo) return null;
+    return L.latLngBounds(latLngsForBounds);
+  }, [hasAnyGeo, latLngsForBounds]);
+
+  const initialCenter = useMemo(() => {
+    // Center on first visible location, else default US center-ish
     const first = activeLocations[0];
-    return first ? { lat: first.lat, lng: first.lng } : { lat: 39.8283, lng: -98.5795 };
+    return first ? [first.lat, first.lng] : [39.8283, -98.5795];
   }, [activeLocations]);
 
-  function routeToStroke(route, isSelected) {
-    if (isSelected) return { color: "#1E3A8A", weight: 5, opacity: 1.0 };
-    const completion = Number(route.completion_percent || 0);
-    // green >= 90, amber 60-89, red < 60
-    if (completion >= 90) return { color: "#059669", weight: 4, opacity: 0.95 };
-    if (completion >= 60) return { color: "#F59E0B", weight: 4, opacity: 0.9 };
-    return { color: "#DC2626", weight: 4, opacity: 0.9 };
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      if (!apiKey) {
-        setMapsEnabled(false);
-        setMapsError("Missing Google Maps API key.");
-        return;
-      }
-
-      try {
-        const loader = new Loader({
-          apiKey,
-          version: "weekly",
-        });
-        const google = await loader.load();
-        if (cancelled) return;
-
-        setMapsEnabled(true);
-        setMapsError("");
-
-        if (!mapRef.current) return;
-
-        mapInstanceRef.current = new google.maps.Map(mapRef.current, {
-          center,
-          zoom: 12,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
-        });
-      } catch (e) {
-        if (cancelled) return;
-        setMapsEnabled(false);
-        setMapsError("Unable to load Google Maps. Check API key/network.");
-      }
-    }
-
-    init();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiKey, center]);
-
-  useEffect(() => {
-    if (!mapsEnabled || !mapInstanceRef.current) return;
-    // eslint-disable-next-line no-undef
-    const google = window.google;
-    if (!google?.maps) return;
-
-    // Clear old markers/polylines
-    markersRef.current.forEach((m) => m.setMap(null));
-    polylinesRef.current.forEach((p) => p.setMap(null));
-    markersRef.current = [];
-    polylinesRef.current = [];
-
-    // Draw routes
-    activeRoutes.forEach((r) => {
-      const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
-      const stroke = routeToStroke(r, isSelected);
-      const poly = new google.maps.Polyline({
-        path: r.polyline,
-        geodesic: true,
-        strokeColor: stroke.color,
-        strokeOpacity: stroke.opacity,
-        strokeWeight: stroke.weight,
-      });
-      poly.setMap(mapInstanceRef.current);
-      poly.addListener("click", () => onSelectRouteId?.(r.id));
-      polylinesRef.current.push(poly);
-    });
-
-    // Draw engineer markers
-    activeLocations.forEach((loc) => {
-      const marker = new google.maps.Marker({
-        position: { lat: loc.lat, lng: loc.lng },
-        map: mapInstanceRef.current,
-        title: loc.engineerId,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          fillColor: "#F59E0B",
-          fillOpacity: 1,
-          scale: 7,
-          strokeColor: "#1E3A8A",
-          strokeWeight: 2,
-        },
-      });
-      markersRef.current.push(marker);
-    });
-
-    // Fit bounds to visible stuff if possible
-    const bounds = new google.maps.LatLngBounds();
-    let hasAny = false;
-    activeLocations.forEach((loc) => {
-      bounds.extend(new google.maps.LatLng(loc.lat, loc.lng));
-      hasAny = true;
-    });
-    activeRoutes.forEach((r) => {
-      r.polyline.forEach((p) => {
-        bounds.extend(new google.maps.LatLng(p.lat, p.lng));
-        hasAny = true;
-      });
-    });
-    if (hasAny) {
-      mapInstanceRef.current.fitBounds(bounds, 40);
-    }
-  }, [mapsEnabled, scopedState, activeRoutes, activeLocations, selectedRouteId, onSelectRouteId]);
-
   const legend = useMemo(() => {
-    // Keep legend aligned with computeRouteStatus thresholds.
     return [
       { label: "Good (≥ 90%)", color: "#059669" },
       { label: "Watch (60–89%)", color: "#F59E0B" },
@@ -166,63 +105,20 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
           <h2>Map Overview</h2>
           <p>Engineer locations and route polylines</p>
         </div>
-        <span className="badge">{mapsEnabled ? "Maps: Enabled" : "Maps: Fallback"}</span>
+        <span className="badge">Maps: Open-source</span>
       </div>
 
       <div className="mapBox">
-        <div ref={mapRef} style={{ height: "100%", width: "100%" }} />
-
-        {mapsEnabled && (
-          <div
-            style={{
-              position: "absolute",
-              left: 12,
-              bottom: 12,
-              background: "rgba(255,255,255,0.92)",
-              border: "1px solid var(--ocean-border)",
-              borderRadius: 12,
-              padding: "10px 12px",
-              boxShadow: "var(--shadow-sm)",
-              maxWidth: 320,
-            }}
-            aria-label="Route completion legend"
-          >
-            <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 8 }}>Route completion</div>
-            <div style={{ display: "grid", gap: 6 }}>
-              {legend.map((l) => (
-                <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width: 18,
-                      height: 6,
-                      borderRadius: 99,
-                      background: l.color,
-                      display: "inline-block",
-                    }}
-                  />
-                  <span className="mini">{l.label}</span>
-                </div>
-              ))}
-              {selectedRouteId && (
-                <div className="mini" style={{ marginTop: 6 }}>
-                  Selected route is highlighted in <strong>navy</strong>.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {!mapsEnabled && (
-          <div className="mapFallback" aria-live="polite">
+        {!hasAnyGeo ? (
+          <div className="mapEmpty" aria-live="polite">
             <div className="mapFallbackInner">
-              <h3>Google Maps is disabled</h3>
+              <h3>No map data to display</h3>
               <p>
-                {mapsError ||
-                  "To enable maps, set environment variable REACT_APP_GOOGLE_MAPS_API_KEY and restart the dev server."}
+                There are currently no engineer locations or routes in your scope. Try switching roles or resetting the dummy
+                data.
               </p>
               <div className="notice">
-                <div style={{ fontWeight: 800, marginBottom: 6 }}>Fallback view</div>
+                <div style={{ fontWeight: 800, marginBottom: 6 }}>Current scope</div>
                 <div style={{ display: "grid", gap: 6 }}>
                   <div>
                     <strong>Visible engineers:</strong> {activeLocations.length}
@@ -230,11 +126,117 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <div>
                     <strong>Visible routes:</strong> {activeRoutes.length}
                   </div>
-                  <div className="mini">You can still use dashboards, lists, filtering, and status updates.</div>
                 </div>
               </div>
             </div>
           </div>
+        ) : (
+          <>
+            <MapContainer
+              center={initialCenter}
+              zoom={12}
+              scrollWheelZoom
+              style={{ height: "100%", width: "100%" }}
+              preferCanvas
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+
+              {bounds && <FitToVisible bounds={bounds} />}
+
+              {activeRoutes.map((r) => {
+                const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
+                const style = routeToStyle(r, isSelected);
+                const positions = toLatLngs(r.polyline);
+
+                if (positions.length < 2) return null;
+
+                return (
+                  <Polyline
+                    key={r.id}
+                    positions={positions}
+                    pathOptions={style}
+                    eventHandlers={{
+                      click: () => onSelectRouteId?.(r.id),
+                    }}
+                  >
+                    <Tooltip sticky direction="top" opacity={0.95}>
+                      <div style={{ fontWeight: 800 }}>{r.name}</div>
+                      <div className="mini">
+                        Completion: <strong>{Number(r.completion_percent || 0)}%</strong>
+                      </div>
+                      <div className="mini">Click to select</div>
+                    </Tooltip>
+                  </Polyline>
+                );
+              })}
+
+              {activeLocations.map((loc) => {
+                if (!Number.isFinite(loc?.lat) || !Number.isFinite(loc?.lng)) return null;
+
+                const name = getEngineerName(scopedState, loc.engineerId);
+
+                // Use a small, high-contrast pin to match Ocean Professional theme.
+                const icon = L.divIcon({
+                  className: "oceanEngineerMarker",
+                  html: `<div class="oceanEngineerMarkerDot" aria-hidden="true"></div>`,
+                  iconSize: [16, 16],
+                  iconAnchor: [8, 8],
+                });
+
+                return (
+                  <Marker key={loc.engineerId} position={[loc.lat, loc.lng]} icon={icon}>
+                    <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
+                      <div style={{ fontWeight: 900 }}>{name}</div>
+                      <div className="mini">{loc.engineerId}</div>
+                    </Tooltip>
+                  </Marker>
+                );
+              })}
+            </MapContainer>
+
+            <div
+              className="mapLegend"
+              aria-label="Route completion legend"
+              style={{
+                position: "absolute",
+                left: 12,
+                bottom: 12,
+                background: "rgba(255,255,255,0.92)",
+                border: "1px solid var(--ocean-border)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                boxShadow: "var(--shadow-sm)",
+                maxWidth: 320,
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 8 }}>Route completion</div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {legend.map((l) => (
+                  <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 18,
+                        height: 6,
+                        borderRadius: 99,
+                        background: l.color,
+                        display: "inline-block",
+                      }}
+                    />
+                    <span className="mini">{l.label}</span>
+                  </div>
+                ))}
+                {selectedRouteId && (
+                  <div className="mini" style={{ marginTop: 6 }}>
+                    Selected route is highlighted in <strong>navy</strong>.
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -242,8 +244,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       <div className="splitRow">
         <div className="mini">
-          Click a route polyline (when enabled) to filter list views by route. Selected route:{" "}
-          <strong>{selectedRouteId || "None"}</strong>
+          Click a route polyline to filter list views by route. Selected route: <strong>{selectedRouteId || "None"}</strong>
         </div>
         <button className="btn btnGhost" onClick={() => onSelectRouteId?.("")} disabled={!selectedRouteId}>
           Clear route filter
@@ -252,7 +253,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       {activeRoutes.length > 0 && (
         <div className="mini" style={{ marginTop: 10 }}>
-          Route colors reflect completion derived from planned/completed stops. (Fallback mode does not display polylines.)
+          Route colors reflect completion derived from planned/completed stops.
         </div>
       )}
     </div>
