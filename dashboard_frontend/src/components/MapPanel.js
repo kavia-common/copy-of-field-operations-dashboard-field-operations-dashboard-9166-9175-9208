@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from "react";
-import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { createPortal } from "react-dom";
 import { computeRouteCompletionCriteriaForRoute, createLruCache, stableWaypointsHash } from "../state/domainStore";
@@ -437,37 +437,7 @@ function TrackZoom({ onZoom }) {
   return null;
 }
 
-// PUBLIC_INTERFACE
-function FocusDeviationOnMap({ focusDeviation, markerRefs, onSelectRouteId }) {
-  /**
-   * When a new deviation is detected, open a small popup (Leaflet Tooltip) on the affected marker,
-   * and also select the route so the route polyline is highlighted.
-   */
-  const map = useMap();
 
-  React.useEffect(() => {
-    if (!focusDeviation) return;
-
-    const engineerId = focusDeviation.engineerId;
-    const routeId = focusDeviation.routeId;
-
-    if (routeId) onSelectRouteId?.(routeId);
-
-    const marker = markerRefs.current?.get(engineerId);
-    if (marker) {
-      try {
-        // Bring the marker into view and open tooltip.
-        const ll = marker.getLatLng?.();
-        if (ll) map.flyTo(ll, Math.max(map.getZoom(), 13), { duration: 0.6 });
-        marker.openTooltip?.();
-      } catch {
-        // no-op: map interaction should never break rendering
-      }
-    }
-  }, [focusDeviation, markerRefs, map, onSelectRouteId]);
-
-  return null;
-}
 
 function safeFitToBounds(map, bounds) {
   if (!map || !bounds) return;
@@ -618,8 +588,8 @@ function LeafletControlTheming() {
   );
 }
 
-export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot, focusDeviation }) {
-  const markerRefs = useRef(new Map());
+export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot }) {
+  // Engineer markers/overlays are intentionally suppressed: map should display routes only.
   const [mapZoom, setMapZoom] = React.useState(12);
 
   // OSRM snap cache + inflight tracking:
@@ -799,15 +769,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   }, [activeRoutes]);
 
   const latLngsForBounds = useMemo(() => {
+    // Routes-only viewport: we deliberately ignore engineer locations/markers.
     const pts = [];
-    activeLocations.forEach((loc) => {
-      if (Number.isFinite(loc?.lat) && Number.isFinite(loc?.lng)) pts.push([loc.lat, loc.lng]);
-    });
     activeRoutes.forEach((r) => {
       toLatLngs(r.polyline).forEach((p) => pts.push(p));
     });
     return pts;
-  }, [activeLocations, activeRoutes]);
+  }, [activeRoutes]);
 
   const hasAnyGeo = latLngsForBounds.length > 0;
 
@@ -817,10 +785,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   }, [hasAnyGeo, latLngsForBounds]);
 
   const initialCenter = useMemo(() => {
-    // Center on first visible location, else default US center-ish
-    const first = activeLocations[0];
-    return first ? [first.lat, first.lng] : [39.8283, -98.5795];
-  }, [activeLocations]);
+    // Center on first visible route coordinate, else default US center-ish.
+    const firstRoute = activeRoutes?.[0];
+    const firstPoint = firstRoute?.polyline?.[0];
+    return firstPoint && Number.isFinite(firstPoint.lat) && Number.isFinite(firstPoint.lng)
+      ? [firstPoint.lat, firstPoint.lng]
+      : [39.8283, -98.5795];
+  }, [activeRoutes]);
 
   const routeCompletionById = useMemo(() => {
     // Uses the strict completion definition in domainStore:
@@ -914,7 +885,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       <div className="cardHeader">
         <div>
           <h2>Map Overview</h2>
-          <p>Engineer locations, route polylines, and checkpoints</p>
+          <p>Route polylines and checkpoints</p>
         </div>
         <span className="badge">Maps: Open-source</span>
       </div>
@@ -969,8 +940,6 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
               {/* New explicit user-facing controls (recenter/fit/fullscreen) */}
               {bounds && <MapControls bounds={bounds} />}
-
-              <FocusDeviationOnMap focusDeviation={focusDeviation} markerRefs={markerRefs} onSelectRouteId={onSelectRouteId} />
 
               {/* Base route polylines (strict completion coloring + compliance dashed emphasis)
                   Rendered as layered strokes to ensure visibility on water/tiles at all zoom levels:
@@ -1033,10 +1002,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                         {criteria ? (
                           <div className="mini">
-                            Waypoints:{" "}
-                            <strong>
-                              {criteria.waypointsCovered ? "covered" : "not covered"}
-                            </strong>
+                            Waypoints: <strong>{criteria.waypointsCovered ? "covered" : "not covered"}</strong>
                             {" • "}
                             Tasks:{" "}
                             <strong>
@@ -1062,10 +1028,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                         {complianceTone ? (
                           <div className="mini">
-                            Compliance:{" "}
-                            <strong style={{ textTransform: "uppercase" }}>
-                              {String(complianceTone)}
-                            </strong>
+                            Compliance: <strong style={{ textTransform: "uppercase" }}>{String(complianceTone)}</strong>
                           </div>
                         ) : null}
 
@@ -1074,9 +1037,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     </Polyline>
 
                     {/* Compliance dashed overlay (above base; not clickable) */}
-                    {complianceStyle ? (
-                      <Polyline positions={positions} pathOptions={complianceStyle} interactive={false} />
-                    ) : null}
+                    {complianceStyle ? <Polyline positions={positions} pathOptions={complianceStyle} interactive={false} /> : null}
 
                     {/* Selection highlight (top-most) */}
                     {isSelected ? (
@@ -1117,254 +1078,6 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     </Tooltip>
                   </CircleMarker>
                 ));
-              })}
-
-              {/* Per-engineer route overlay (thin, but still visible at low zoom) */}
-              {engineerRouteOverlays.map((o) => {
-                const sev = worstSeverityByEngineer?.[o.engineerId] || "";
-                const style = engineerRouteOverlayStyle(sev, mapZoom);
-                const halo = engineerRouteOverlayHaloStyle(mapZoom);
-
-                return (
-                  <React.Fragment key={`eng_route_stack_${o.engineerId}`}>
-                    <Polyline positions={o.positions} pathOptions={halo} interactive={false} />
-                    <Polyline positions={o.positions} pathOptions={style}>
-                      <Tooltip sticky direction="top" opacity={0.95}>
-                        <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, o.engineerId)}</div>
-                        <div className="mini">
-                          Assigned route: <strong>{o.routeName || o.routeId || "Unassigned"}</strong>
-                        </div>
-                        {sev ? (
-                          <div className="mini">
-                            Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
-                          </div>
-                        ) : null}
-                      </Tooltip>
-                    </Polyline>
-                  </React.Fragment>
-                );
-              })}
-
-              {/* Engineer markers (update positions on store refresh) */}
-              {activeLocations.map((loc) => {
-                if (!Number.isFinite(loc?.lat) || !Number.isFinite(loc?.lng)) return null;
-
-                const name = getEngineerName(scopedState, loc.engineerId);
-                const sev = worstSeverityByEngineer?.[loc.engineerId] || "";
-                const ringClass =
-                  sev === "high"
-                    ? "oceanEngineerMarkerRingHigh"
-                    : sev === "medium"
-                      ? "oceanEngineerMarkerRingMed"
-                      : sev
-                        ? "oceanEngineerMarkerRingLow"
-                        : "";
-
-                const eng = getEngineer(scopedState, loc.engineerId);
-                const regionId = eng?.regionId || "";
-                const regionName = getRegionName(scopedState, regionId);
-                const regionalManager = getRegionalManagerName(scopedState, regionId);
-
-                const routeId = engineerAssignmentsByEngineerId.get(loc.engineerId) || "";
-                const route = routeId ? routeById.get(routeId) : null;
-                const routeName = route?.name || "";
-
-                const plannedStops = Number(route?.planned_stops || 0);
-                const completedStops = Number(route?.completed_stops || 0);
-                const completionPercent = Number(route?.completion_percent || 0);
-                const completionSummary =
-                  plannedStops > 0 ? `${completedStops}/${plannedStops} (${completionPercent}%)` : route ? `${completionPercent}%` : "";
-
-                const flags = complianceSnapshot?.flags || [];
-                const engineerFlags = flags
-                  .filter((f) => f.engineerId === loc.engineerId)
-                  .slice()
-                  .sort((a, b) => {
-                    const sevRank = { high: 3, medium: 2, low: 1 };
-                    return (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0);
-                  });
-
-                // Use a small, high-contrast pin to match Ocean Professional theme.
-                const icon = L.divIcon({
-                  className: "oceanEngineerMarker",
-                  html: `<div class="oceanEngineerMarkerDot" aria-hidden="true"></div>${
-                    sev ? `<div class="oceanEngineerMarkerRing ${ringClass}" aria-hidden="true"></div>` : ""
-                  }`,
-                  iconSize: [18, 18],
-                  iconAnchor: [9, 9],
-                });
-
-                const completionToneKey = completionTone(route);
-                const completionColors = completionBadgeColor(completionToneKey);
-                const alertColors = complianceBadgeColor(sev);
-
-                return (
-                  <Marker
-                    key={loc.engineerId}
-                    position={[loc.lat, loc.lng]}
-                    icon={icon}
-                    riseOnHover
-                    ref={(ref) => {
-                      if (!ref) return;
-                      markerRefs.current.set(loc.engineerId, ref);
-                    }}
-                  >
-                    {/* Keep tooltip for quick glance on hover */}
-                    <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
-                      <div style={{ fontWeight: 900 }}>{name}</div>
-                      <div className="mini">{loc.engineerId}</div>
-                      <div className="mini">
-                        Region: <strong>{regionId || "—"}</strong>
-                      </div>
-                      <div className="mini">
-                        Route: <strong>{routeName || routeId || "Unassigned"}</strong>
-                      </div>
-                      {sev ? (
-                        <div className="mini">
-                          Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
-                        </div>
-                      ) : null}
-                      {focusDeviation?.engineerId === loc.engineerId ? (
-                        <div className="mini" style={{ marginTop: 6, fontWeight: 800, color: "var(--ocean-error)" }}>
-                          New deviation: {String(focusDeviation.rule || "").replaceAll("_", " ")}
-                        </div>
-                      ) : null}
-                    </Tooltip>
-
-                    {/* Rich popup on click (updates as state refreshes) */}
-                    <Popup maxWidth={320} minWidth={260} autoPan>
-                      <div style={{ display: "grid", gap: 10 }}>
-                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-                          <div>
-                            <div style={{ fontWeight: 950, fontSize: 14, color: "var(--ocean-text)" }}>
-                              Engineer: {fmtOrDash(name)}
-                            </div>
-                            <div className="mini" style={{ marginTop: 2 }}>
-                              ID: <strong>{fmtOrDash(loc.engineerId)}</strong>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-                            <span
-                              className="badge"
-                              style={{
-                                background: completionColors.bg,
-                                color: completionColors.fg,
-                                border: `1px solid ${completionColors.border}`,
-                                fontWeight: 900,
-                              }}
-                            >
-                              {route ? `${completionPercent}%` : "Unassigned"}
-                            </span>
-
-                            {sev ? (
-                              <span
-                                className="badge"
-                                style={{
-                                  background: alertColors.bg,
-                                  color: alertColors.fg,
-                                  border: `1px solid ${alertColors.border}`,
-                                  fontWeight: 900,
-                                  textTransform: "uppercase",
-                                }}
-                              >
-                                {sev} alert
-                              </span>
-                            ) : (
-                              <span
-                                className="badge"
-                                style={{
-                                  background: "rgba(5,150,105,0.10)",
-                                  color: "#059669",
-                                  border: "1px solid rgba(5,150,105,0.28)",
-                                  fontWeight: 900,
-                                }}
-                              >
-                                No alerts
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div style={{ borderTop: "1px solid var(--ocean-border)", paddingTop: 10, display: "grid", gap: 6 }}>
-                          <div className="mini">
-                            Regional manager: <strong>{fmtOrDash(regionalManager)}</strong>
-                          </div>
-                          <div className="mini">
-                            Region: <strong>{fmtOrDash(regionName || regionId)}</strong>
-                          </div>
-                          <div className="mini">
-                            Current route: <strong>{fmtOrDash(routeName || routeId)}</strong>
-                          </div>
-                          <div className="mini">
-                            Completion: <strong>{fmtOrDash(completionSummary)}</strong>
-                          </div>
-                        </div>
-
-                        <div style={{ borderTop: "1px solid var(--ocean-border)", paddingTop: 10 }}>
-                          <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 6, color: "var(--ocean-text)" }}>
-                            Active alerts
-                          </div>
-
-                          {engineerFlags.length === 0 ? (
-                            <div className="mini">—</div>
-                          ) : (
-                            <div style={{ display: "grid", gap: 8 }}>
-                              {engineerFlags.slice(0, 5).map((f) => {
-                                const c = complianceBadgeColor(f.severity);
-                                return (
-                                  <div
-                                    key={f.id}
-                                    style={{
-                                      display: "grid",
-                                      gap: 4,
-                                      padding: "8px 10px",
-                                      borderRadius: 10,
-                                      border: `1px solid ${c.border}`,
-                                      background: c.bg,
-                                    }}
-                                  >
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                                      <div style={{ fontWeight: 900, fontSize: 12, color: c.fg }}>
-                                        {String(f.severity || "").toUpperCase()}
-                                      </div>
-                                      <div className="mini" style={{ color: "rgba(17,24,39,0.8)" }}>
-                                        {fmtOrDash(toTitleRule(f.rule))}
-                                      </div>
-                                    </div>
-                                    <div className="mini" style={{ color: "rgba(17,24,39,0.9)" }}>
-                                      {fmtOrDash(f.message)}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                              {engineerFlags.length > 5 ? (
-                                <div className="mini" style={{ opacity: 0.85 }}>
-                                  +{engineerFlags.length - 5} more
-                                </div>
-                              ) : null}
-                            </div>
-                          )}
-
-                          {focusDeviation?.engineerId === loc.engineerId ? (
-                            <div
-                              className="mini"
-                              style={{
-                                marginTop: 10,
-                                fontWeight: 900,
-                                color: "var(--ocean-error)",
-                                borderTop: "1px dashed var(--ocean-border)",
-                                paddingTop: 10,
-                              }}
-                            >
-                              New deviation: {String(focusDeviation.rule || "").replaceAll("_", " ")}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </Popup>
-                  </Marker>
-                );
               })}
             </MapContainer>
 
@@ -1429,7 +1142,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 ) : null}
 
                 <div className="mini" style={{ marginTop: 6 }}>
-                  Checkpoints are shown as <strong>small circles</strong>. Each engineer has a thin assigned-route overlay.
+                  Checkpoints are shown as <strong>small circles</strong>.
                 </div>
                 {selectedRouteId && (
                   <div className="mini" style={{ marginTop: 6 }}>
