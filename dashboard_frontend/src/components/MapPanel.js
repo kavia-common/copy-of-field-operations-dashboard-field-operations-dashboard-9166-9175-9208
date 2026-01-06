@@ -93,36 +93,105 @@ function toTitleRule(rule) {
     .join(" ");
 }
 
-function routeToStyle({ route, isSelected, complianceTone, completionStatus }) {
-  /**
-   * Base route style rules:
-   * - Selected route: always navy highlight (highest priority).
-   * - Compliance overlay: dashed emphasis with severity color (still reflects completion in legend via other entries).
-   * - Otherwise: color strictly by completion status:
-   *    - completed => green
-   *    - in_progress => yellow
-   *    - not_completed => red
-   */
-  if (isSelected) return { color: "#1E3A8A", weight: 5, opacity: 1.0 };
+/**
+ * Route stroke palette chosen to stay high-contrast against OSM water/land tones.
+ * Slightly darker/more saturated than the theme palette, and always full opacity.
+ */
+const ROUTE_STROKE = {
+  completed: "#047857", // darker teal-green (avoid blending with lighter greens/water)
+  in_progress: "#B45309", // deeper amber
+  not_completed: "#B91C1C", // deeper red
+  selected: "#1E3A8A", // theme primary (navy)
+};
 
-  // If complianceTone is provided, emphasize the route with a dashed alert style.
-  if (complianceTone === "high") return { color: "#DC2626", weight: 6, opacity: 0.95, dashArray: "10 8" };
-  if (complianceTone === "medium") return { color: "#F59E0B", weight: 6, opacity: 0.9, dashArray: "10 8" };
-  if (complianceTone === "low") return { color: "#111827", weight: 5, opacity: 0.85, dashArray: "6 6" };
+/**
+ * Subtle dark halo to separate routes from water/features without overpowering the line.
+ * Use neutral/navy-black; keep some transparency so it reads as an outline.
+ */
+const ROUTE_HALO = {
+  color: "#0b1a3a",
+  opacity: 0.4,
+};
 
-  if (completionStatus === "completed") return { color: "#059669", weight: 4, opacity: 0.95 };
-  if (completionStatus === "in_progress") return { color: "#F59E0B", weight: 4, opacity: 0.9 };
+/**
+ * Returns a zoom-aware stroke weight, but never below the requested min.
+ * This prevents lines from becoming hairlines when zoomed out (visibility issue).
+ */
+function strokeWeightForZoom(zoom, { min = 4, max = 8 } = {}) {
+  const z = Number.isFinite(zoom) ? zoom : 12;
 
-  // not_completed (default)
-  return { color: "#DC2626", weight: 4, opacity: 0.9 };
+  // Piecewise scale: keep a strong minimum at low zoom, gently increase at higher zoom.
+  // z<=10 -> min, z=12 -> min+1, z=14 -> min+2, z>=16 -> max (capped)
+  const scaled = min + Math.max(0, z - 10) * 0.5;
+  return Math.max(min, Math.min(max, Math.round(scaled)));
 }
 
-function engineerRouteOverlayStyle(severity) {
+/**
+ * Base route style rules (no selection here; selection is rendered as a top highlight layer).
+ * - Compliance overlay: dashed emphasis with severity color (still visible above halo/base).
+ * - Otherwise: strict completion-status colors (darker/saturated), opacity locked at 1.0.
+ */
+function routeToStyle({ zoom, complianceTone, completionStatus }) {
+  const baseWeight = strokeWeightForZoom(zoom, { min: 4, max: 7 });
+
+  // If complianceTone is provided, emphasize the route with a dashed alert style.
+  // Keep opacity at 1.0 to avoid washed-out appearance.
+  if (complianceTone === "high") return { color: ROUTE_STROKE.not_completed, weight: baseWeight + 2, opacity: 1.0, dashArray: "10 8" };
+  if (complianceTone === "medium") return { color: "#D97706", weight: baseWeight + 2, opacity: 1.0, dashArray: "10 8" };
+  if (complianceTone === "low") return { color: "#111827", weight: baseWeight + 1, opacity: 1.0, dashArray: "6 6" };
+
+  if (completionStatus === "completed") return { color: ROUTE_STROKE.completed, weight: baseWeight, opacity: 1.0 };
+  if (completionStatus === "in_progress") return { color: ROUTE_STROKE.in_progress, weight: baseWeight, opacity: 1.0 };
+
+  // not_completed (default)
+  return { color: ROUTE_STROKE.not_completed, weight: baseWeight, opacity: 1.0 };
+}
+
+function routeHaloStyle({ zoom, complianceTone }) {
+  // Halo should be slightly thicker than the base stroke and *solid* even if compliance is dashed,
+  // so the route stays legible on water/streets at far zoom.
+  const baseWeight = strokeWeightForZoom(zoom, { min: 4, max: 7 });
+  const haloExtra = complianceTone ? 4 : 3;
+  return {
+    color: ROUTE_HALO.color,
+    opacity: ROUTE_HALO.opacity,
+    weight: baseWeight + haloExtra,
+    dashArray: null,
+    lineCap: "round",
+    lineJoin: "round",
+  };
+}
+
+function selectionHighlightStyle({ zoom }) {
+  // Selection should pop: thicker stroke + brighter outline effect.
+  // We use a white-ish halo above everything plus the navy stroke on top.
+  const baseWeight = strokeWeightForZoom(zoom, { min: 4, max: 7 });
+  return {
+    halo: { color: "#FFFFFF", opacity: 0.95, weight: baseWeight + 6, lineCap: "round", lineJoin: "round" },
+    stroke: { color: ROUTE_STROKE.selected, opacity: 1.0, weight: baseWeight + 2, lineCap: "round", lineJoin: "round" },
+  };
+}
+
+function engineerRouteOverlayStyle(severity, zoom) {
   // Keep severity emphasis but slightly lighter than main route, so base route colors remain primary.
-  if (severity === "high") return { color: "#DC2626", weight: 3, opacity: 0.9, dashArray: "6 6" };
-  if (severity === "medium") return { color: "#F59E0B", weight: 3, opacity: 0.85, dashArray: "6 6" };
-  if (severity === "low") return { color: "#111827", weight: 3, opacity: 0.8, dashArray: "4 6" };
-  return { color: "#1E3A8A", weight: 3, opacity: 0.55 };
+  // Ensure it remains visible when zoomed out by enforcing a minimum weight + full opacity.
+  const w = strokeWeightForZoom(zoom, { min: 3, max: 5 });
+
+  if (severity === "high") return { color: ROUTE_STROKE.not_completed, weight: w, opacity: 1.0, dashArray: "6 6" };
+  if (severity === "medium") return { color: ROUTE_STROKE.in_progress, weight: w, opacity: 1.0, dashArray: "6 6" };
+  if (severity === "low") return { color: "#111827", weight: w, opacity: 1.0, dashArray: "4 6" };
+  return { color: ROUTE_STROKE.selected, weight: w, opacity: 0.9 };
+}
+
+function engineerRouteOverlayHaloStyle(zoom) {
+  const w = strokeWeightForZoom(zoom, { min: 3, max: 5 });
+  return {
+    color: ROUTE_HALO.color,
+    opacity: 0.25,
+    weight: w + 3,
+    lineCap: "round",
+    lineJoin: "round",
+  };
 }
 
 /**
@@ -161,6 +230,36 @@ function FitToVisible({ bounds }) {
     // Fit with padding to avoid legend overlay and card padding.
     map.fitBounds(bounds, { padding: [40, 40] });
   }, [bounds, map]);
+
+  return null;
+}
+
+// PUBLIC_INTERFACE
+function TrackZoom({ onZoom }) {
+  /** Tracks Leaflet zoom changes so polyline stroke weight can be zoom-aware while keeping min visibility. */
+  const map = useMap();
+
+  React.useEffect(() => {
+    if (!map) return;
+
+    const emit = () => {
+      try {
+        onZoom?.(map.getZoom());
+      } catch {
+        // no-op
+      }
+    };
+
+    emit();
+    map.on("zoomend", emit);
+    return () => {
+      try {
+        map.off("zoomend", emit);
+      } catch {
+        // no-op
+      }
+    };
+  }, [map, onZoom]);
 
   return null;
 }
@@ -348,6 +447,7 @@ function LeafletControlTheming() {
 
 export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot, focusDeviation }) {
   const markerRefs = useRef(new Map());
+  const [mapZoom, setMapZoom] = React.useState(12);
 
   const activeRoutes = useMemo(() => {
     if (!scopedState) return [];
@@ -486,9 +586,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
   const legend = useMemo(() => {
     return [
-      { label: "Completed", color: "#059669" },
-      { label: "In progress", color: "#F59E0B" },
-      { label: "Not completed", color: "#DC2626" },
+      { label: "Completed", color: ROUTE_STROKE.completed },
+      { label: "In progress", color: ROUTE_STROKE.in_progress },
+      { label: "Not completed", color: ROUTE_STROKE.not_completed },
       { label: "Compliance alerts (dashed)", color: "#111827" },
     ];
   }, []);
@@ -548,21 +648,28 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
               {/* Keep existing auto-fit behavior; no change to refresh behavior. */}
               {bounds && <FitToVisible bounds={bounds} />}
 
+              {/* Track zoom for visibility-aware polyline styling (does not alter map behavior). */}
+              <TrackZoom onZoom={setMapZoom} />
+
               {/* New explicit user-facing controls (recenter/fit/fullscreen) */}
               {bounds && <MapControls bounds={bounds} />}
 
               <FocusDeviationOnMap focusDeviation={focusDeviation} markerRefs={markerRefs} onSelectRouteId={onSelectRouteId} />
 
-              {/* Base route polylines (strict completion coloring + compliance dashed emphasis) */}
+              {/* Base route polylines (strict completion coloring + compliance dashed emphasis)
+                  Rendered as layered strokes to ensure visibility on water/tiles at all zoom levels:
+                  1) neutral halo (under)
+                  2) base stroke (solid, high-contrast, opacity locked at 1.0)
+                  3) compliance dashed overlay (if applicable)
+                  4) selection highlight (top-most)
+              */}
               {activeRoutes.map((r) => {
                 const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
                 const complianceTone = worstSeverityByRoute[r.id] || "";
                 const completionStatus = routeCompletionStatusById?.[r.id] || "not_completed";
                 const criteria = routeCompletionById?.[r.id] || null;
 
-                const style = routeToStyle({ route: r, isSelected, complianceTone, completionStatus });
                 const positions = toLatLngs(r.polyline);
-
                 if (positions.length < 2) return null;
 
                 const statusLabel =
@@ -572,52 +679,76 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       ? "In progress"
                       : "Not completed";
 
+                // Base style is always solid and full opacity; compliance is rendered as a separate dashed overlay.
+                const baseStyle = routeToStyle({ zoom: mapZoom, complianceTone: "", completionStatus });
+                const complianceStyle = complianceTone ? routeToStyle({ zoom: mapZoom, complianceTone, completionStatus }) : null;
+                const haloStyle = routeHaloStyle({ zoom: mapZoom, complianceTone: complianceTone || "" });
+                const sel = selectionHighlightStyle({ zoom: mapZoom });
+
                 return (
-                  <Polyline
-                    key={`route_${r.id}`}
-                    positions={positions}
-                    pathOptions={style}
-                    eventHandlers={{
-                      click: () => onSelectRouteId?.(r.id),
-                    }}
-                  >
-                    <Tooltip sticky direction="top" opacity={0.95}>
-                      <div style={{ fontWeight: 800 }}>{r.name}</div>
+                  <React.Fragment key={`route_stack_${r.id}`}>
+                    {/* Under-halo */}
+                    <Polyline positions={positions} pathOptions={haloStyle} interactive={false} />
 
-                      <div className="mini">
-                        Status: <strong>{statusLabel}</strong>
-                      </div>
+                    {/* Base visible stroke (clickable/selectable) */}
+                    <Polyline
+                      positions={positions}
+                      pathOptions={baseStyle}
+                      eventHandlers={{
+                        click: () => onSelectRouteId?.(r.id),
+                      }}
+                    >
+                      <Tooltip sticky direction="top" opacity={0.95}>
+                        <div style={{ fontWeight: 800 }}>{r.name}</div>
 
-                      <div className="mini">
-                        Completion: <strong>{Number(r.completion_percent || 0)}%</strong>
-                      </div>
-
-                      {criteria ? (
                         <div className="mini">
-                          Waypoints:{" "}
-                          <strong>
-                            {criteria.waypointsCovered ? "covered" : "not covered"}
-                          </strong>
-                          {" • "}
-                          Tasks:{" "}
-                          <strong>
-                            {criteria.completedTasks}/{criteria.totalTasks} completed
-                          </strong>
+                          Status: <strong>{statusLabel}</strong>
                         </div>
-                      ) : null}
 
-                      {complianceTone ? (
                         <div className="mini">
-                          Compliance:{" "}
-                          <strong style={{ textTransform: "uppercase" }}>
-                            {String(complianceTone)}
-                          </strong>
+                          Completion: <strong>{Number(r.completion_percent || 0)}%</strong>
                         </div>
-                      ) : null}
 
-                      <div className="mini">Click to select</div>
-                    </Tooltip>
-                  </Polyline>
+                        {criteria ? (
+                          <div className="mini">
+                            Waypoints:{" "}
+                            <strong>
+                              {criteria.waypointsCovered ? "covered" : "not covered"}
+                            </strong>
+                            {" • "}
+                            Tasks:{" "}
+                            <strong>
+                              {criteria.completedTasks}/{criteria.totalTasks} completed
+                            </strong>
+                          </div>
+                        ) : null}
+
+                        {complianceTone ? (
+                          <div className="mini">
+                            Compliance:{" "}
+                            <strong style={{ textTransform: "uppercase" }}>
+                              {String(complianceTone)}
+                            </strong>
+                          </div>
+                        ) : null}
+
+                        <div className="mini">Click to select</div>
+                      </Tooltip>
+                    </Polyline>
+
+                    {/* Compliance dashed overlay (above base; not clickable) */}
+                    {complianceStyle ? (
+                      <Polyline positions={positions} pathOptions={complianceStyle} interactive={false} />
+                    ) : null}
+
+                    {/* Selection highlight (top-most) */}
+                    {isSelected ? (
+                      <>
+                        <Polyline positions={positions} pathOptions={sel.halo} interactive={false} />
+                        <Polyline positions={positions} pathOptions={sel.stroke} interactive={false} />
+                      </>
+                    ) : null}
+                  </React.Fragment>
                 );
               })}
 
@@ -651,25 +782,29 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 ));
               })}
 
-              {/* Per-engineer route overlay (thin) */}
+              {/* Per-engineer route overlay (thin, but still visible at low zoom) */}
               {engineerRouteOverlays.map((o) => {
                 const sev = worstSeverityByEngineer?.[o.engineerId] || "";
-                const style = engineerRouteOverlayStyle(sev);
+                const style = engineerRouteOverlayStyle(sev, mapZoom);
+                const halo = engineerRouteOverlayHaloStyle(mapZoom);
 
                 return (
-                  <Polyline key={`eng_route_${o.engineerId}`} positions={o.positions} pathOptions={style}>
-                    <Tooltip sticky direction="top" opacity={0.95}>
-                      <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, o.engineerId)}</div>
-                      <div className="mini">
-                        Assigned route: <strong>{o.routeName || o.routeId || "Unassigned"}</strong>
-                      </div>
-                      {sev ? (
+                  <React.Fragment key={`eng_route_stack_${o.engineerId}`}>
+                    <Polyline positions={o.positions} pathOptions={halo} interactive={false} />
+                    <Polyline positions={o.positions} pathOptions={style}>
+                      <Tooltip sticky direction="top" opacity={0.95}>
+                        <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, o.engineerId)}</div>
                         <div className="mini">
-                          Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
+                          Assigned route: <strong>{o.routeName || o.routeId || "Unassigned"}</strong>
                         </div>
-                      ) : null}
-                    </Tooltip>
-                  </Polyline>
+                        {sev ? (
+                          <div className="mini">
+                            Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
+                          </div>
+                        ) : null}
+                      </Tooltip>
+                    </Polyline>
+                  </React.Fragment>
                 );
               })}
 
