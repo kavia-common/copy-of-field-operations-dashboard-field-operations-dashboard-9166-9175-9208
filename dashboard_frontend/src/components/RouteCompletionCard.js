@@ -52,7 +52,7 @@ export default function RouteCompletionCard({ scopedState }) {
         <div className="kpi">
           <div className="kpiLabel">Routes completed</div>
           <div className="kpiValue">{metrics.completedRoutes}</div>
-          <div className="kpiSub">Completion ≥ 95%</div>
+          <div className="kpiSub">All points covered + all tasks done</div>
         </div>
 
         <div className="kpi">
@@ -71,8 +71,8 @@ export default function RouteCompletionCard({ scopedState }) {
       <hr className="hr" />
 
       <div className="mini">
-        Notes: route completion is derived from planned/completed stops. Exceptions and non-compliance are shown in their dedicated
-        cards/sections.
+        Notes: a route is marked completed only when all route points are covered and all tasks on that route are completed. Exceptions
+        and non-compliance are shown in their dedicated cards/sections.
       </div>
     </div>
   );

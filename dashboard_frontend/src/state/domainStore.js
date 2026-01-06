@@ -35,6 +35,49 @@ function computeRouteCompletion(route) {
   return { ...route, completion_percent };
 }
 
+/**
+ * Route completion criteria (stricter):
+ * A route is considered completed only when:
+ *  - All route waypoints/points are covered/visited, AND
+ *  - All tasks associated with that route are completed.
+ *
+ * IMPORTANT:
+ * The dummy dataset does not currently provide explicit waypoint-visit events.
+ * We therefore interpret "covered/visited" using the existing planned/completed
+ * stop counters:
+ *   - waypointsCovered is satisfied when completed_stops >= planned_stops
+ *   - If planned_stops is 0 or missing, we treat waypoint coverage as NOT satisfied
+ *     (conservative default to avoid marking routes complete with missing data).
+ *
+ * Tasks completeness is evaluated from the tasks list by routeId. If a route has
+ * zero tasks, we treat tasks completeness as NOT satisfied (conservative default).
+ */
+function computeRouteCompletionCriteriaForRoute(route, tasksList) {
+  const plannedStops = Number(route?.planned_stops || 0);
+  const completedStops = Number(route?.completed_stops || 0);
+
+  const hasWaypoints = plannedStops > 0;
+  const waypointsCovered = hasWaypoints && completedStops >= plannedStops;
+
+  const routeTasks = (tasksList || []).filter((t) => t.routeId === route?.id);
+  const hasTasks = routeTasks.length > 0;
+  const allTasksCompleted = hasTasks && routeTasks.every((t) => t.status === Statuses.COMPLETED);
+
+  const isCompleted = waypointsCovered && allTasksCompleted;
+
+  return {
+    hasWaypoints,
+    waypointsCovered,
+    plannedStops,
+    completedStops,
+    hasTasks,
+    totalTasks: routeTasks.length,
+    completedTasks: routeTasks.filter((t) => t.status === Statuses.COMPLETED).length,
+    allTasksCompleted,
+    isCompleted,
+  };
+}
+
 function getDefaultState() {
   return {
     regions: deepClone(regions),
@@ -273,7 +316,9 @@ export function computeMetrics(scopedState) {
   const exceptions = computeExceptions(allTasks);
 
   const routesOverall = computeOverallRouteCompletion(scopedState.routes || []);
-  const completedRoutes = (scopedState.routes || []).filter((r) => Number(r.completion_percent || 0) >= 95).length;
+  const completedRoutes = (scopedState.routes || []).filter((r) =>
+    computeRouteCompletionCriteriaForRoute(r, scopedState.tasks || []).isCompleted
+  ).length;
 
   return {
     totalTasks: total,
@@ -497,10 +542,12 @@ export function computeRouteCompletionWithExceptionsSummary(
 //
 
 /**
- * A route is considered "completed" when completion_percent >= 95.
- * This matches the rest of the UI (map coloring + DPR route completion).
+ * Route completion is considered true ONLY when:
+ *  - all waypoints (represented by planned_stops) are covered, AND
+ *  - all tasks for that route are completed.
+ *
+ * NOTE: We keep this definition in selectors so UI stays consistent.
  */
-const ROUTE_COMPLETED_THRESHOLD_PCT = 95;
 
 // PUBLIC_INTERFACE
 export function computeRouteCompletionMinimalMetrics(scopedState) {
@@ -510,22 +557,23 @@ export function computeRouteCompletionMinimalMetrics(scopedState) {
    * - routes remaining (count)
    * - overall completion percent (based on route counts)
    *
+   * Completion criteria (stricter):
+   * A route is "completed" only if:
+   *   - completed_stops >= planned_stops (and planned_stops > 0), AND
+   *   - all tasks for that route are status === completed (and there is at least 1 task).
+   *
    * IMPORTANT:
-   * For the simplified RouteCompletionCard, the overall % must align with the displayed counts.
-   * We therefore define:
+   * For the simplified RouteCompletionCard, the overall % must align with the displayed counts:
    *   total_routes = completed_routes + remaining_routes
    *   completion_pct = round((completed_routes / total_routes) * 100)
-   *
-   * This intentionally excludes any exception/compliance details.
    */
   const routesList = scopedState?.routes || [];
+  const tasksList = scopedState?.tasks || [];
   const totalRoutes = routesList.length;
 
-  const completedRoutes = routesList.filter((r) => Number(r.completion_percent || 0) >= ROUTE_COMPLETED_THRESHOLD_PCT).length;
+  const completedRoutes = routesList.filter((r) => computeRouteCompletionCriteriaForRoute(r, tasksList).isCompleted).length;
   const remainingRoutes = Math.max(0, totalRoutes - completedRoutes);
 
-  // completion_pct = round((completed_routes / total_routes) * 100)
-  // where total_routes is derived from the same source as the counts above.
   const denom = completedRoutes + remainingRoutes;
   const overallCompletionPercent = denom <= 0 ? 0 : clampPct((completedRoutes / denom) * 100);
 
@@ -645,7 +693,7 @@ export function computeDpr(state, user, { dateIso }) {
   const exceptionsToday = computeExceptions(tasksToday);
 
   const routesList = scoped.routes || [];
-  const completedRoutes = routesList.filter((r) => Number(r.completion_percent || 0) >= 95).length;
+  const completedRoutes = routesList.filter((r) => computeRouteCompletionCriteriaForRoute(r, scoped.tasks || []).isCompleted).length;
   const routesOverall = computeOverallRouteCompletion(routesList);
 
   // Engineer performance (within scope)
@@ -673,7 +721,9 @@ export function computeDpr(state, user, { dateIso }) {
     const regionCompletedTasks = regionTasks.filter((t) => t.status === Statuses.COMPLETED).length;
     const regionExceptions = computeExceptions(regionTasks);
     const regionRouteOverall = computeOverallRouteCompletion(regionRoutes);
-    const regionCompletedRoutes = regionRoutes.filter((rt) => Number(rt.completion_percent || 0) >= 95).length;
+    const regionCompletedRoutes = regionRoutes.filter((rt) =>
+      computeRouteCompletionCriteriaForRoute(rt, tasksToday).isCompleted
+    ).length;
 
     return {
       regionId: r.id,
