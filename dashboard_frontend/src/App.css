@@ -620,31 +620,7 @@
   width: 100%;
 }
 
-/*
-  BUGFIX: prevent stray default Leaflet SVG path styling from showing up as blue dots.
-  Leaflet's default path stroke is #3388ff; if *any* unintended CircleMarker/Path is mounted
-  (debug points, plugin artifacts, transient layers), it can appear as small blue dots,
-  often visible over oceans when zoomed out.
 
-  We scope this to .mapBox only to avoid impacting any future maps elsewhere.
-  Intended routes/waypoints already set explicit pathOptions and will not be affected.
-*/
-/*
-  Leaflet SVG path defaults:
-  - Leaflet default stroke is #3388ff, which can show up for transient/plugin layers.
-  - However, we MUST NOT override our route polylines, which explicitly set `pathOptions`
-    (status fill/body + top stroke meaning). A broad `svg path { stroke: ...; fill: ... }`
-    will force everything to look the same (often perceived as "still blue").
-
-  Fix:
-  - Only neutralize the default-blue for interactive paths that *do not* have an explicit
-    stroke style attribute (rare, but can happen with plugin artifacts).
-  - Do not set a global fill at all (polylines are strokes; a forced fill can create
-    confusing visual blobs and override our layered “fill body” effect).
-*/
-.mapBox .leaflet-overlay-pane svg path.leaflet-interactive:not([style*="stroke"]) {
-  stroke: rgba(17, 24, 39, 0.55);
-}
 
 /* Ocean Professional map controls (custom + plugin-friendly) */
 .oceanMapControlGroup {

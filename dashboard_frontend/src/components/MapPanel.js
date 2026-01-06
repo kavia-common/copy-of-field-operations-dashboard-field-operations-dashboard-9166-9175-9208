@@ -106,11 +106,16 @@ const DEVIATION_RED = "#DC2626";
 // Planned layer is now status-colored (Completed/In Progress/Not Started).
 const ACTUAL_BLUE = "#2563EB"; // blue-600
 
-// Status colors for the former Planned layer (dashed).
-// Use palette tones aligned with the app theme and the request.
+/**
+ * Status colors for the former Planned layer (dashed).
+ * Requirement: Fill/body encodes status:
+ *  - Completed = green
+ *  - In Progress = yellow
+ *  - Not Started = grey
+ */
 const STATUS_COMPLETED_GREEN = "#059669"; // success
 const STATUS_IN_PROGRESS_YELLOW = "#F59E0B"; // warn/amber
-const STATUS_NOT_STARTED_BLUE = "#2563EB"; // blue
+const STATUS_NOT_STARTED_GREY = "#9CA3AF"; // gray-400
 
 const ROUTE_HALO = {
   color: "#0b1a3a",
@@ -1272,7 +1277,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     ? STATUS_COMPLETED_GREEN
                     : routeStatus === "In Progress"
                       ? STATUS_IN_PROGRESS_YELLOW
-                      : STATUS_NOT_STARTED_BLUE;
+                      : STATUS_NOT_STARTED_GREY;
 
                 const haloStyle = routeHaloStyle({ zoom: mapZoom });
 
@@ -1330,7 +1335,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </div>
 
                         <div className="mini">
-                          Status (fill):{" "}
+                          Fill (status):{" "}
                           <strong
                             style={{
                               color:
@@ -1338,7 +1343,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                                   ? STATUS_COMPLETED_GREEN
                                   : routeStatus === "In Progress"
                                     ? STATUS_IN_PROGRESS_YELLOW
-                                    : STATUS_NOT_STARTED_BLUE,
+                                    : STATUS_NOT_STARTED_GREY,
                             }}
                           >
                             {routeStatus}
@@ -1346,11 +1351,11 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </div>
 
                         <div className="mini">
-                          Stroke meaning:{" "}
+                          Stroke (path indicator):{" "}
                           {showDeviationForRoute ? (
-                            <strong style={{ color: DEVIATION_RED }}>Deviation (red)</strong>
+                            <strong style={{ color: DEVIATION_RED }}>Has deviations (red)</strong>
                           ) : (
-                            <strong style={{ color: ACTUAL_BLUE }}>Actual (blue)</strong>
+                            <strong style={{ color: ACTUAL_BLUE }}>No deviations (blue)</strong>
                           )}
                         </div>
 
@@ -1580,17 +1585,17 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       height: 10,
                       display: "inline-block",
                       borderRadius: 999,
-                      background: `color-mix(in srgb, ${STATUS_NOT_STARTED_BLUE} 32%, transparent)`,
+                      background: `color-mix(in srgb, ${STATUS_NOT_STARTED_GREY} 32%, transparent)`,
                       border: `2px solid ${ACTUAL_BLUE}`,
                     }}
                   />
                   <span>
-                    Not Started: <strong style={{ color: STATUS_NOT_STARTED_BLUE }}>blue</strong>
+                    Not Started: <strong style={{ color: STATUS_NOT_STARTED_GREY }}>grey</strong>
                   </span>
                 </div>
 
                 <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)", marginTop: 6 }}>
-                  Stroke meaning (top dashed)
+                  Stroke (path indicator / top dashed)
                 </div>
                 <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span
@@ -1604,7 +1609,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     }}
                   />
                   <span>
-                    Actual: <strong style={{ color: ACTUAL_BLUE }}>blue</strong>
+                    No deviation: <strong style={{ color: ACTUAL_BLUE }}>blue</strong>
                   </span>
                 </div>
                 <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1619,7 +1624,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     }}
                   />
                   <span>
-                    Deviation: <strong style={{ color: DEVIATION_RED }}>red</strong>
+                    Has deviations: <strong style={{ color: DEVIATION_RED }}>red</strong>
                   </span>
                 </div>
 
