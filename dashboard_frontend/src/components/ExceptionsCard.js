@@ -20,26 +20,34 @@ export default function ExceptionsCard({ scopedState, dateIso }) {
   /**
    * Dashboard "Tasks" KPI card (simplified).
    *
-   * Replaces the prior Exceptions drill-down card. Shows only:
+   * Shows:
+   *  - Total tasks (badge): sum of the same scoped tasks used by the KPI tiles below
    *  - Completed (tasks due today that are marked completed)
    *  - Rejected (tasks due today with status rejected)
    *  - Redo (tasks due today with status redo)
    *
-   * Note: This card is date-scoped by task dueDate (same scoping used elsewhere).
+   * Note: This card is scoped by permissions (scopedState) AND date-scoped by task dueDate
+   * (same scoping used elsewhere).
    */
   const counts = useMemo(() => selectTaskCountsByStatus(scopedState, { dateIso }), [scopedState, dateIso]);
   const tone = tasksTone(counts);
 
+  // Total tasks must match the same scope/date criteria used for the other counts.
+  const totalTasks = Number(counts.completed || 0) + Number(counts.rejected || 0) + Number(counts.redo || 0);
+
   return (
     <div className="card">
       <div className="cardHeader">
-        <div>
-          <h2>Tasks</h2>
-          <p>Today&apos;s task outcomes (due date scope)</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <h2 style={{ margin: 0 }}>Tasks</h2>
+          <span className="badge" aria-label="Total tasks due today in current scope">
+            Total: <strong>{totalTasks}</strong>
+          </span>
+          <p style={{ margin: 0, width: "100%" }}>Today&apos;s task outcomes ({counts.date})</p>
         </div>
 
-        <span className={toneToBadgeClass(tone)}>
-          Date: <strong>{counts.date}</strong>
+        <span className={toneToBadgeClass(tone)} aria-label="Completed tasks due today in current scope">
+          Completed: <strong>{counts.completed}</strong>
         </span>
       </div>
 
@@ -69,9 +77,7 @@ export default function ExceptionsCard({ scopedState, dateIso }) {
 
       <hr className="hr" />
 
-      <div className="mini">
-        This card replaces the previous Exceptions drill-down. Use the Tasks page to review and resolve rejected/redo items.
-      </div>
+      <div className="mini">Notes: Tasks overview</div>
     </div>
   );
 }
