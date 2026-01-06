@@ -204,6 +204,31 @@ function makeGoogleMapsStyleDestinationSvg() {
   </svg>`;
 }
 
+function makeGoogleMapsStyleStartSvg() {
+  /**
+   * Start marker: same destination-like pin silhouette, but green.
+   * We keep the same size and anchor as destination so the tip aligns correctly.
+   */
+  return `
+  <svg width="34" height="50" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="start marker">
+    <defs>
+      <filter id="shadowStart" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="rgba(17,24,39,0.30)" />
+      </filter>
+    </defs>
+
+    <g filter="url(#shadowStart)">
+      <!-- Pin body -->
+      <path d="M17 49 C17 49 31 32.5 31 19.5 C31 8.9 24.1 2 17 2 C9.9 2 3 8.9 3 19.5 C3 32.5 17 49 17 49 Z"
+        fill="#059669" stroke="rgba(17,24,39,0.18)" stroke-width="1.2"/>
+      <!-- Inner white circle -->
+      <circle cx="17" cy="19.5" r="8.8" fill="#FFFFFF"/>
+      <!-- Center dot -->
+      <circle cx="17" cy="19.5" r="3.2" fill="#059669"/>
+    </g>
+  </svg>`;
+}
+
 function makeDotSvg({ fill, stroke = "rgba(17,24,39,0.30)" }) {
   return `
   <svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="waypoint">
@@ -287,6 +312,14 @@ const destinationDivIcon = L.divIcon({
   html: makeGoogleMapsStyleDestinationSvg(),
   iconSize: [34, 50],
   iconAnchor: [17, 49],
+  tooltipAnchor: [0, -34],
+});
+
+const startDivIcon = L.divIcon({
+  className: "oceanMarker oceanMarkerStart",
+  html: makeGoogleMapsStyleStartSvg(),
+  iconSize: [34, 50],
+  iconAnchor: [17, 49], // tip aligns to start coordinate
   tooltipAnchor: [0, -34],
 });
 
@@ -1228,7 +1261,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       plannedPositions.forEach((p) => pts.push(p));
 
-      // Include waypoint markers & destination in fit-to-bounds.
+      // Include start marker, waypoint markers & destination in fit-to-bounds.
+      const start = rawPlannedPositions[0];
+      if (Array.isArray(start) && start.length === 2) pts.push(start);
+
       const sampledWaypoints = clampWaypointCountForMarkers(rawPlannedPositions, 60);
       sampledWaypoints.forEach((p) => pts.push(p));
       const dest = rawPlannedPositions[rawPlannedPositions.length - 1];
@@ -1600,6 +1636,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     const markerCoveredCount =
                       plannedStops > 0 && totalMarkers > 0 ? Math.round((Math.min(completedStops, plannedStops) / plannedStops) * totalMarkers) : 0;
 
+                    const start = rawPlannedPositions[0];
                     const destination = rawPlannedPositions[rawPlannedPositions.length - 1];
 
                     return (
@@ -1643,6 +1680,18 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             <div className="mini">Click for details</div>
                           </Tooltip>
                         </Polyline>
+
+                        {/* Start pin */}
+                        {Array.isArray(start) && start.length === 2 ? (
+                          <Marker key={`start_${r.id}`} position={start} icon={startDivIcon} interactive>
+                            <Tooltip direction="top" opacity={0.95}>
+                              <div style={{ fontWeight: 900 }}>{r.name}</div>
+                              <div className="mini">
+                                Start: <strong style={{ color: WAYPOINT_COVERED }}>First waypoint</strong>
+                              </div>
+                            </Tooltip>
+                          </Marker>
+                        ) : null}
 
                         {/* Waypoint dots */}
                         {markerWaypoints.map((p, idx) => {
@@ -1941,6 +1990,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: WAYPOINT_DESTINATION, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
                   <span>
                     Destination: <strong style={{ color: WAYPOINT_DESTINATION }}>D pin</strong>
+                  </span>
+                </div>
+
+                <div className="mini" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: WAYPOINT_COVERED, display: "inline-block", border: "1px solid rgba(17,24,39,0.18)" }} />
+                  <span>
+                    Start: <strong style={{ color: WAYPOINT_COVERED }}>green pin</strong>
                   </span>
                 </div>
 
