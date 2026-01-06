@@ -1336,7 +1336,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             {deviationSegments.length === 0 ? " (no segment geometry)" : ""}
                           </div>
                         ) : (
-                          <div className="mini">Deviation: none</div>
+                          <div className="mini">
+                            Deviation:{" "}
+                            <strong style={{ color: "var(--ocean-muted)" }}>No deviations</strong>
+                          </div>
                         )}
 
                         <div className="mini">Click to select</div>
@@ -1408,7 +1411,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         <div className="mini">
                           Deviation: <strong style={{ color: DEVIATION_RED }}>flagged</strong>
                         </div>
-                      ) : null}
+                      ) : (
+                        <div className="mini">
+                          Deviation:{" "}
+                          <strong style={{ color: "var(--ocean-muted)" }}>No deviations</strong>
+                        </div>
+                      )}
                     </Tooltip>
                   </CircleMarker>
                 );
@@ -1595,6 +1603,39 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   </div>
                 ) : null}
 
+                {(() => {
+                  // Legend deviation summary:
+                  // - If a route is selected, summarize that route.
+                  // - Otherwise, summarize all currently visible routes in the region.
+                  const routeIdsForLegend = selectedRouteId ? [selectedRouteId] : Array.from(visibleRouteIds || []);
+                  const hasAnyDeviationsInScope = routeIdsForLegend.some((rid) => Boolean(hasDeviationByRouteId?.[rid]));
+                  const hasAnyRoutesInScope = routeIdsForLegend.length > 0;
+
+                  if (!hasAnyRoutesInScope) return null;
+
+                  return (
+                    <div className="mini" style={{ marginTop: 6 }}>
+                      Deviations ({selectedRouteId ? "selected route" : "visible routes"}):{" "}
+                      {hasAnyDeviationsInScope ? (
+                        <strong style={{ color: DEVIATION_RED }}>flagged</strong>
+                      ) : (
+                        <span
+                          className="badge"
+                          style={{
+                            padding: "3px 8px",
+                            fontSize: 11,
+                            background: "rgba(148,163,184,0.16)", // slate-ish neutral
+                            borderColor: "rgba(148,163,184,0.28)",
+                            color: "var(--ocean-muted)",
+                            fontWeight: 900,
+                          }}
+                        >
+                          No deviations
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
                 {selectedRouteId ? (
                   <div className="mini" style={{ marginTop: 6 }}>
                     Selected route is highlighted in <strong>navy</strong>.
@@ -1731,16 +1772,26 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                                   : "badge"
                               : "badge"
                           }
-                          style={{ whiteSpace: "nowrap" }}
+                          style={{
+                            whiteSpace: "nowrap",
+                            ...(routePopupDetails.deviationDetails?.totalFlags
+                              ? null
+                              : {
+                                  background: "rgba(148,163,184,0.16)",
+                                  borderColor: "rgba(148,163,184,0.28)",
+                                  color: "var(--ocean-muted)",
+                                  fontWeight: 900,
+                                }),
+                          }}
                           aria-label={
                             routePopupDetails.deviationDetails?.totalFlags
                               ? `Worst deviation severity: ${routePopupDetails.deviationDetails.worstSeverity || "unknown"}`
-                              : "No deviations detected"
+                              : "No deviations"
                           }
                         >
                           {routePopupDetails.deviationDetails?.totalFlags
                             ? (routePopupDetails.deviationDetails.worstSeverity || "—").toUpperCase()
-                            : "NONE"}
+                            : "No deviations"}
                         </span>
                       </div>
 
@@ -1802,7 +1853,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </>
                       ) : (
                         <div className="mini" style={{ marginTop: 10 }}>
-                          Deviation details: <strong>None detected</strong>
+                          Deviation details:{" "}
+                          <strong style={{ color: "var(--ocean-muted)" }}>No deviations</strong>
                         </div>
                       )}
                     </section>
