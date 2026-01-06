@@ -532,6 +532,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   // App-level route details modal (replaces Leaflet inline popup to avoid shrinking inside the map).
   const [routeDetailsModalRouteId, setRouteDetailsModalRouteId] = React.useState("");
 
+  // Whether the route details modal is open (used to obscure the map without unmounting it).
+  const isRouteDetailsModalOpen = Boolean(routeDetailsModalRouteId);
+
   // OSRM snap cache + inflight tracking.
   const osrmCacheRef = useRef(null);
   const osrmLimiterRef = useRef(null);
@@ -952,6 +955,21 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       </div>
 
       <div className="mapBox">
+        {/* 
+          Obscure the map whenever the route details modal is open.
+          IMPORTANT: we keep the Leaflet map mounted to preserve map state (bounds, layers) and OSRM caches.
+        */}
+        {isRouteDetailsModalOpen ? (
+          <div className="mapObscureOverlay" aria-hidden="true">
+            <div className="mapObscureOverlayInner">
+              <div style={{ fontWeight: 900, color: "var(--ocean-text)" }}>Route details open</div>
+              <div className="mini" style={{ marginTop: 4 }}>
+                The map is temporarily hidden behind the modal.
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {!hasAnyGeo ? (
           <div className="mapEmpty" aria-live="polite">
             <div className="mapFallbackInner">

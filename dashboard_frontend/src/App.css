@@ -576,6 +576,30 @@
   position: relative;
 }
 
+/* 
+  When an app-level modal (route details) is open, we obscure the map so it isn't visible behind it.
+  We intentionally DO NOT unmount the Leaflet map to preserve state/caches (bounds, layers, OSRM).
+*/
+.mapObscureOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 45; /* below modalOverlay (50) and toasts (60), above Leaflet */
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.16), rgba(245, 158, 11, 0.10));
+  backdrop-filter: blur(6px);
+}
+
+.mapObscureOverlayInner {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--ocean-border);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+  max-width: min(420px, calc(100% - 24px));
+}
+
 /* Explicitly ensure Leaflet’s internal container fills the mapBox. */
 .mapBox .leaflet-container {
   height: 100%;
