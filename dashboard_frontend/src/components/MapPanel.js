@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   computeRouteCompletionCriteriaForRoute,
   createLruCache,
-  selectRouteCommentsForDate,
+  selectRouteCommentsWithMetaForDate,
   stableWaypointsHash,
 } from "../state/domainStore";
 
@@ -830,8 +830,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         : "Not completed";
 
     // Route-level comments sourced from persisted task history/notes (role-scoped via scopedState).
-    // We intentionally keep this compact and do not include engineer names/IDs.
-    const comments = selectRouteCommentsForDate(scopedState, { routeId: route.id });
+    // Enriched with engineer name + a short local timestamp label for the popup UI.
+    const comments = selectRouteCommentsWithMetaForDate(scopedState, { routeId: route.id });
 
     return {
       routeId: route.id,
@@ -1204,14 +1204,41 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Comments</div>
                           <div style={{ display: "grid", gap: 6 }}>
                             {routePopupDetails.comments.slice(0, 4).map((c) => (
-                              <div key={c.id} className="mini" style={{ lineHeight: 1.25 }}>
-                                <strong style={{ textTransform: "capitalize" }}>
-                                  {String(c.type || "")
-                                    .replaceAll("_", " ")
-                                    .trim()}
-                                  :
-                                </strong>{" "}
-                                {c.text}
+                              <div
+                                key={c.id}
+                                style={{
+                                  padding: "6px 8px",
+                                  border: "1px solid var(--ocean-border)",
+                                  borderRadius: 10,
+                                  background: "rgba(255,255,255,0.70)",
+                                }}
+                              >
+                                <div
+                                  className="mini"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "baseline",
+                                    justifyContent: "space-between",
+                                    gap: 10,
+                                    lineHeight: 1.2,
+                                    color: "var(--ocean-muted)",
+                                  }}
+                                >
+                                  <span style={{ fontWeight: 900, color: "var(--ocean-text)" }}>
+                                    {c.engineerName || "Engineer"}
+                                  </span>
+                                  <span style={{ whiteSpace: "nowrap" }}>{c.timestampLabel || "—"}</span>
+                                </div>
+
+                                <div className="mini" style={{ marginTop: 4, lineHeight: 1.25 }}>
+                                  <strong style={{ textTransform: "capitalize" }}>
+                                    {String(c.type || "")
+                                      .replaceAll("_", " ")
+                                      .trim()}
+                                    :
+                                  </strong>{" "}
+                                  {c.text}
+                                </div>
                               </div>
                             ))}
                             {routePopupDetails.comments.length > 4 ? (

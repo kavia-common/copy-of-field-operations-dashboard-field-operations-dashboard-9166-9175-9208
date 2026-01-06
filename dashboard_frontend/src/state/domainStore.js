@@ -558,10 +558,7 @@ export function selectTaskCountsByStatus(scopedState, { dateIso } = {}) {
 }
 
 // PUBLIC_INTERFACE
-export function computeRouteCompletionWithExceptionsSummary(
-  scopedState,
-  { dateIso, complianceSnapshot = null } = {}
-) {
+export function computeRouteCompletionWithExceptionsSummary(scopedState, { dateIso, complianceSnapshot = null } = {}) {
   /**
    * Computes per-route completion + exceptions (rejected/redo) and non-compliance counts for the selected date/scope.
    * Intended for the merged dashboard Route Completion card and unified drill-down table.
@@ -1076,10 +1073,55 @@ export function updateTaskStatus(state, { taskId, toStatus, reason, actorUserId 
 
 /**
  * PUBLIC_INTERFACE
+ * Resolve an engineer/user display name by id, using the provided (scoped) domain state.
+ *
+ * Notes:
+ * - In scope-restricted views, the engineer may not be present in scopedState.users;
+ *   in that case this returns the id as a fallback.
+ */
+// PUBLIC_INTERFACE
+export function selectEngineerNameById(scopedState, engineerId) {
+  /** Returns a friendly engineer name, or a fallback string when missing. */
+  if (!engineerId) return "";
+  const u = (scopedState?.users || []).find((x) => x.id === engineerId);
+  return u?.name || engineerId;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Formats an ISO timestamp (or Date-parsable value) into a short local datetime.
+ *
+ * Example output (depends on locale):
+ * - "Jan 6, 3:42 PM"
+ * - "06 Jan, 15:42"
+ */
+// PUBLIC_INTERFACE
+export function formatTimestampShortLocal(ts) {
+  /** Formats a timestamp for compact UI display. */
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (!Number.isFinite(d.getTime())) return "";
+
+  try {
+    // Compact, locale-aware; keep it short for popup layout.
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(d);
+  } catch {
+    // Fallback: "YYYY-MM-DD HH:MM"
+    const iso = d.toISOString();
+    return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+  }
+}
+
+/**
+ * PUBLIC_INTERFACE
  * Collects compact, route-level comments/notes for a given date from persisted task state + status history.
  *
- * This is used by MapPanel route click popups to show engineer/task comments (hold reasons, rejection/redo notes)
- * without exposing engineer identities.
+ * This is used by MapPanel route click popups to show engineer/task comments (hold reasons, rejection/redo notes).
  *
  * What is considered a “comment”:
  * - statusHistory reasons for task transitions to: on_hold, postponed, rejected, redo
@@ -1089,6 +1131,9 @@ export function updateTaskStatus(state, { taskId, toStatus, reason, actorUserId 
  * Filtering:
  * - Only tasks belonging to the given routeId
  * - Only items whose timestamp/dueDate matches the YYYY-MM-DD prefix of dateIso (defaults to “today”)
+ *
+ * Return shape:
+ * - id, taskId, type, timestamp, text
  */
 export function selectRouteCommentsForDate(scopedState, { routeId, dateIso } = {}) {
   const date = datePrefixFromIso(dateIso);
@@ -1161,6 +1206,44 @@ export function selectRouteCommentsForDate(scopedState, { routeId, dateIso } = {
   deduped.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")) || String(a.id).localeCompare(String(b.id)));
 
   return deduped;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Route popup-specific selector:
+ * returns route comments enriched with engineer name + formatted timestamp.
+ *
+ * If a comment doesn't have a direct engineerId, we infer it from the owning task.
+ *
+ * Return shape:
+ * - id, taskId, type, text
+ * - timestamp (raw ISO if present)
+ * - timestampLabel (short local string, if possible)
+ * - engineerId (inferred if possible)
+ * - engineerName (resolved via users list, fallback to id)
+ */
+// PUBLIC_INTERFACE
+export function selectRouteCommentsWithMetaForDate(scopedState, { routeId, dateIso } = {}) {
+  /** Enriches route comments with engineer + local short timestamp labels for UI. */
+  const base = selectRouteCommentsForDate(scopedState, { routeId, dateIso });
+  if (!Array.isArray(base) || base.length === 0) return [];
+
+  const taskById = new Map((scopedState?.tasks || []).map((t) => [t.id, t]));
+
+  return base.map((c) => {
+    const t = c?.taskId ? taskById.get(c.taskId) : null;
+
+    const engineerId = c.engineerId || t?.engineerId || "";
+    const engineerName = engineerId ? selectEngineerNameById(scopedState, engineerId) : "";
+    const timestampLabel = c.timestamp ? formatTimestampShortLocal(c.timestamp) : "";
+
+    return {
+      ...c,
+      engineerId,
+      engineerName,
+      timestampLabel,
+    };
+  });
 }
 
 // PUBLIC_INTERFACE
