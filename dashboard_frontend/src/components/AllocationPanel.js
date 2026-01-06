@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Roles } from "../data/dummyData";
-import { allocateEngineerToRoute, computeEngineerWorkload } from "../state/domainStore";
+import { assignRouteToEngineer, computeEngineerWorkload, unassignRouteFromEngineer } from "../state/domainStore";
 
 function regionName(state, regionId) {
   return state.regions.find((r) => r.id === regionId)?.name || "—";
@@ -65,7 +65,11 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
   }, [fullState.routes]);
 
   function handleAssign(engineerId, routeId) {
-    const res = allocateEngineerToRoute(fullState, { engineerId, routeId });
+    // Use explicit actions so assignment changes emit a routeChangePulse for MapPanel highlight.
+    const res = routeId
+      ? assignRouteToEngineer(fullState, { engineerId, routeId })
+      : unassignRouteFromEngineer(fullState, { engineerId });
+
     if (!res.ok) return;
     setFullState(res.state);
   }

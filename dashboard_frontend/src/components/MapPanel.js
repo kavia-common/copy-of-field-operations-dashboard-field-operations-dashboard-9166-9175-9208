@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import {
   computeRouteCompletionCriteriaForRoute,
   createLruCache,
+  selectEngineerIdsForRoute,
+  selectEngineerNameById,
   selectRouteCommentsWithMetaForDate,
   stableWaypointsHash,
 } from "../state/domainStore";
@@ -350,6 +352,17 @@ function selectionHighlightStyle({ zoom }) {
   };
 }
 
+function assignmentPulseHighlightStyle({ zoom }) {
+  // Assignment changes should be visible even when route isn't selected:
+  // use a bright halo + slightly thicker primary stroke for ~3-5s.
+  const baseWeight = strokeWeightForZoom(zoom, { min: 4, max: 7 });
+  return {
+    halo: { color: "#FFFFFF", opacity: 0.95, weight: baseWeight + 10, lineCap: "round", lineJoin: "round" },
+    glow: { color: "#60A5FA", opacity: 0.85, weight: baseWeight + 7, lineCap: "round", lineJoin: "round" }, // light blue glow
+    stroke: { color: "#1E3A8A", opacity: 1.0, weight: baseWeight + 3, lineCap: "round", lineJoin: "round" },
+  };
+}
+
 function engineerRouteOverlayStyle(severity, zoom) {
   // Keep severity emphasis but slightly lighter than main route, so base route colors remain primary.
   // Ensure it remains visible when zoomed out by enforcing a minimum weight + full opacity.
@@ -600,6 +613,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   // Route click popup (anchored near click). Stores only routeId + lat/lng so content can re-render as state refreshes.
   const [routePopup, setRoutePopup] = React.useState(null); // { routeId: string, lat: number, lng: number } | null
 
+  // Assignment-change highlight: routeId -> expiresAtMs
+  const [assignmentHighlightByRouteId, setAssignmentHighlightByRouteId] = React.useState(() => ({}));
+  const lastPulseIdRef = useRef("");
+
   // OSRM snap cache + inflight tracking:
   // - cache persists for the session (component lifetime)
   // - inflight map avoids duplicate requests for the same route+waypoints
@@ -833,11 +850,18 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     // Enriched with engineer name + a short local timestamp label for the popup UI.
     const comments = selectRouteCommentsWithMetaForDate(scopedState, { routeId: route.id });
 
+    // Assignment context (routes-only rendering preserved; no engineer markers added).
+    const assignedEngineerIds = selectEngineerIdsForRoute(scopedState, route.id);
+    const assignedEngineers = assignedEngineerIds
+      .map((id) => ({ id, name: selectEngineerNameById(scopedState, id) }))
+      .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
     return {
       routeId: route.id,
       routeName: route.name || route.id,
       regionName,
       managerName,
+      assignedEngineers,
       totalWaypoints: Number(criteria?.plannedStops ?? 0),
       waypointsCovered: Math.min(Number(criteria?.completedStops ?? 0), Number(criteria?.plannedStops ?? 0)),
       totalTasks: Number(criteria?.totalTasks ?? 0),
@@ -907,6 +931,85 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     if (toFetch.length > 0) scheduleOsrmFetch(toFetch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routesWaypointMeta, scheduleOsrmFetch]);
+
+  // Assignment-change pulse:
+  // - Briefly emphasize affected routes for ~4 seconds.
+  // - Force OSRM snapped polylines to refresh for affected routes by dropping cached/state entries.
+  React.useEffect(() => {
+    const pulse = scopedState?.routeChangePulse;
+    if (!pulse?.id || pulse.id === lastPulseIdRef.current) return;
+
+    lastPulseIdRef.current = pulse.id;
+
+    const routeIds = Array.isArray(pulse.routeIds) ? pulse.routeIds.filter(Boolean) : [];
+    if (routeIds.length === 0) return;
+
+    const ttlMs = 4200;
+    const expiresAt = Date.now() + ttlMs;
+
+    // 1) Highlight routes
+    setAssignmentHighlightByRouteId((prev) => {
+      const next = { ...prev };
+      routeIds.forEach((rid) => {
+        next[rid] = expiresAt;
+      });
+      return next;
+    });
+
+    // Ensure highlight is removed after TTL. (We keep it simple; no interval needed.)
+    const t = window.setTimeout(() => {
+      setAssignmentHighlightByRouteId((prev) => {
+        const next = { ...prev };
+        const now = Date.now();
+        Object.keys(next).forEach((rid) => {
+          if (next[rid] <= now) delete next[rid];
+        });
+        return next;
+      });
+    }, ttlMs + 120);
+
+    // 2) Force OSRM refresh for affected route(s):
+    // Drop in-memory LRU entries and local state entries for all keys that match those routeIds.
+    try {
+      const routeKeyPrefixes = new Set(routeIds.map((rid) => `${rid}::`));
+      const cache = osrmCacheRef.current;
+
+      // Remove from React state maps (snapped/status) so the hash-based effect refetches.
+      setSnappedByKey((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          for (const prefix of routeKeyPrefixes) {
+            if (k.startsWith(prefix)) delete next[k];
+          }
+        });
+        return next;
+      });
+
+      setSnapStatusByKey((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          for (const prefix of routeKeyPrefixes) {
+            if (k.startsWith(prefix)) delete next[k];
+          }
+        });
+        return next;
+      });
+
+      // Also drop from the LRU itself. We don't have direct key iteration on the cache by design,
+      // but we can "invalidate" by overwriting to undefined only when we know keys:
+      // use current route waypoint meta keys as the authoritative list.
+      (routesWaypointMeta || []).forEach((it) => {
+        if (!it?.key) return;
+        for (const prefix of routeKeyPrefixes) {
+          if (it.key.startsWith(prefix)) cache.set(it.key, undefined);
+        }
+      });
+    } catch {
+      // no-op: snapping is best-effort; highlight should still work.
+    }
+
+    return () => window.clearTimeout(t);
+  }, [scopedState?.routeChangePulse, routesWaypointMeta]);
 
   // If scope changes and the selected popup route is no longer available, close the popup.
   React.useEffect(() => {
@@ -1028,6 +1131,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 const haloStyle = routeHaloStyle({ zoom: mapZoom, complianceTone: complianceTone || "" });
                 const sel = selectionHighlightStyle({ zoom: mapZoom });
 
+                const now = Date.now();
+                const isAssignmentHighlighted = Number(assignmentHighlightByRouteId?.[r.id] || 0) > now;
+                const pulse = assignmentPulseHighlightStyle({ zoom: mapZoom });
+
                 return (
                   <React.Fragment key={`route_stack_${r.id}`}>
                     {/* Under-halo */}
@@ -1107,6 +1214,15 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     {/* Compliance dashed overlay (above base; not clickable) */}
                     {complianceStyle ? <Polyline positions={positions} pathOptions={complianceStyle} interactive={false} /> : null}
 
+                    {/* Assignment-change pulse highlight (top-most unless selected highlight also present) */}
+                    {isAssignmentHighlighted ? (
+                      <>
+                        <Polyline positions={positions} pathOptions={pulse.halo} interactive={false} />
+                        <Polyline positions={positions} pathOptions={pulse.glow} interactive={false} />
+                        <Polyline positions={positions} pathOptions={pulse.stroke} interactive={false} />
+                      </>
+                    ) : null}
+
                     {/* Selection highlight (top-most) */}
                     {isSelected ? (
                       <>
@@ -1168,6 +1284,15 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       </div>
                       <div className="mini">
                         Assigned manager: <strong>{fmtOrDash(routePopupDetails.managerName)}</strong>
+                      </div>
+
+                      <div className="mini">
+                        Assigned engineer(s):{" "}
+                        <strong>
+                          {Array.isArray(routePopupDetails.assignedEngineers) && routePopupDetails.assignedEngineers.length > 0
+                            ? routePopupDetails.assignedEngineers.map((e) => e.name || e.id).join(", ")
+                            : "Unassigned"}
+                        </strong>
                       </div>
 
                       <div className="mini">

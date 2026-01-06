@@ -168,7 +168,7 @@ export function createLruCache(maxEntries = 100) {
 
     /** Current size (debugging/diagnostics). */
     size() {
-      return map.size;
+      return map.size();
     },
   };
 }
@@ -182,6 +182,14 @@ function getDefaultState() {
     engineerLiveLocations: deepClone(engineerLiveLocations),
     tasks: deepClone(tasks),
     statusHistory: deepClone(initialStatusHistory),
+
+    /**
+     * UI event channel (persisted as part of state for simplicity):
+     * - MapPanel uses this to briefly highlight routes whose assignment changed.
+     * - Shape:
+     *   { id: string, routeIds: string[], at: ISO string, reason: string }
+     */
+    routeChangePulse: null,
   };
 }
 
@@ -201,6 +209,8 @@ export function loadDomainState() {
     next.routes = (next.routes || []).map((r) => computeRouteCompletion(r));
     next.engineerAssignments = Array.isArray(next.engineerAssignments) ? next.engineerAssignments : [];
     next.statusHistory = Array.isArray(next.statusHistory) ? next.statusHistory : [];
+    next.routeChangePulse = next.routeChangePulse || null;
+
     next.tasks = (next.tasks || []).map((t) => ({
       ...t,
       // Next scheduled due date (read-only). If missing (older localStorage), keep empty string.
@@ -669,6 +679,7 @@ export function computeRouteCompletionWithExceptionsSummary(scopedState, { dateI
   };
 }
 
+//
 //
 // Route Completion-only selector (separated from exceptions/compliance).
 //
@@ -1250,22 +1261,127 @@ export function selectRouteCommentsWithMetaForDate(scopedState, { routeId, dateI
   });
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Computes assignment maps for UI usage:
+ * - engineerToRoute: { [engineerId]: routeId }
+ * - routeToEngineers: { [routeId]: engineerId[] }
+ */
+// PUBLIC_INTERFACE
+export function selectAssignmentMaps(stateOrScopedState) {
+  /** Returns engineer->route and route->engineers maps derived from engineerAssignments. */
+  const assignments = stateOrScopedState?.engineerAssignments || [];
+  const engineerToRoute = {};
+  const routeToEngineers = {};
+  assignments.forEach((a) => {
+    if (!a?.engineerId) return;
+    if (a.routeId) engineerToRoute[a.engineerId] = a.routeId;
+    if (a.routeId) {
+      if (!routeToEngineers[a.routeId]) routeToEngineers[a.routeId] = [];
+      routeToEngineers[a.routeId].push(a.engineerId);
+    }
+  });
+  return { engineerToRoute, routeToEngineers };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Returns engineer IDs assigned to a given route (for popups/context).
+ */
+// PUBLIC_INTERFACE
+export function selectEngineerIdsForRoute(stateOrScopedState, routeId) {
+  /** Returns an array of engineerIds assigned to the specified routeId. */
+  if (!routeId) return [];
+  const assignments = stateOrScopedState?.engineerAssignments || [];
+  return assignments.filter((a) => a.routeId === routeId).map((a) => a.engineerId);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Assigns an engineer to a route, persisting the update.
+ *
+ * Behavior:
+ * - One active route per engineer (replaces previous).
+ * - Returns { ok, state, changedRouteIds } so callers can trigger map highlight/refresh.
+ */
+// PUBLIC_INTERFACE
+export function assignRouteToEngineer(state, { engineerId, routeId }) {
+  /** Assigns engineerId to routeId (replaces prior assignment if any). */
+  if (!engineerId) return { ok: false, error: "Missing engineerId." };
+  if (!routeId) return { ok: false, error: "Missing routeId." };
+
+  const next = deepClone(state);
+  next.engineerAssignments = Array.isArray(next.engineerAssignments) ? next.engineerAssignments : [];
+
+  const prev = next.engineerAssignments.find((a) => a.engineerId === engineerId);
+  const prevRouteId = prev?.routeId || "";
+
+  // If no change, do nothing (avoid unnecessary highlight pulses)
+  if (prevRouteId === routeId) {
+    return { ok: true, state: next, changedRouteIds: [] };
+  }
+
+  // Remove any existing assignment(s) for that engineer (keep simple: 1 active route).
+  next.engineerAssignments = next.engineerAssignments.filter((a) => a.engineerId !== engineerId);
+  next.engineerAssignments.push({ engineerId, routeId });
+
+  const changedRouteIds = [prevRouteId, routeId].filter(Boolean);
+
+  // Pulse used by MapPanel for temporary route highlight and OSRM cache refresh.
+  next.routeChangePulse = {
+    id: randomId("pulse"),
+    routeIds: changedRouteIds,
+    at: nowIso(),
+    reason: "assignment_changed",
+  };
+
+  saveDomainState(next);
+  return { ok: true, state: next, changedRouteIds };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Unassigns an engineer from their current route, persisting the update.
+ *
+ * Returns { ok, state, changedRouteIds } so callers can trigger map highlight/refresh.
+ */
+// PUBLIC_INTERFACE
+export function unassignRouteFromEngineer(state, { engineerId }) {
+  /** Unassigns engineerId from any route. */
+  if (!engineerId) return { ok: false, error: "Missing engineerId." };
+
+  const next = deepClone(state);
+  next.engineerAssignments = Array.isArray(next.engineerAssignments) ? next.engineerAssignments : [];
+
+  const prev = next.engineerAssignments.find((a) => a.engineerId === engineerId);
+  const prevRouteId = prev?.routeId || "";
+
+  // If not assigned, no-op
+  if (!prevRouteId) {
+    return { ok: true, state: next, changedRouteIds: [] };
+  }
+
+  next.engineerAssignments = next.engineerAssignments.filter((a) => a.engineerId !== engineerId);
+
+  const changedRouteIds = [prevRouteId].filter(Boolean);
+  next.routeChangePulse = {
+    id: randomId("pulse"),
+    routeIds: changedRouteIds,
+    at: nowIso(),
+    reason: "assignment_changed",
+  };
+
+  saveDomainState(next);
+  return { ok: true, state: next, changedRouteIds };
+}
+
 // PUBLIC_INTERFACE
 export function allocateEngineerToRoute(state, { engineerId, routeId }) {
   /** Assign/unassign engineer to a route. If routeId is empty, unassign. */
   if (!engineerId) return { ok: false, error: "Missing engineerId." };
-  const next = deepClone(state);
-  next.engineerAssignments = Array.isArray(next.engineerAssignments) ? next.engineerAssignments : [];
 
-  // Remove any existing assignment(s) for that engineer (keep simple: 1 active route).
-  next.engineerAssignments = next.engineerAssignments.filter((a) => a.engineerId !== engineerId);
-
-  if (routeId) {
-    next.engineerAssignments.push({ engineerId, routeId });
-  }
-
-  saveDomainState(next);
-  return { ok: true, state: next };
+  if (!routeId) return unassignRouteFromEngineer(state, { engineerId });
+  return assignRouteToEngineer(state, { engineerId, routeId });
 }
 
 // PUBLIC_INTERFACE
