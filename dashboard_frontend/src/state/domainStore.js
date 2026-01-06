@@ -153,6 +153,21 @@ function computeExceptions(tasksList) {
   return { rejected, redo, total: rejected + redo };
 }
 
+function topReasons(tasksList, { limit = 2 } = {}) {
+  // Aggregate common reasons for rejected/redo to surface a short "latest/common reasons" hint per route.
+  const counts = new Map();
+  tasksList.forEach((t) => {
+    const reason = (t.status === Statuses.REJECTED ? t.rejection_reason : t.redo_reason) || "";
+    const key = reason.trim();
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([reason, count]) => ({ reason, count }));
+}
+
 function computeOverallRouteCompletion(routesList) {
   const totals = routesList.reduce(
     (acc, r) => {
@@ -364,6 +379,117 @@ export function computeExceptionsSummary(scopedState, { dateIso } = {}) {
   }
 
   return { date, today, trend };
+}
+
+// PUBLIC_INTERFACE
+export function computeRouteCompletionWithExceptionsSummary(
+  scopedState,
+  { dateIso, complianceSnapshot = null } = {}
+) {
+  /**
+   * Computes per-route completion + exceptions (rejected/redo) and non-compliance counts for the selected date/scope.
+   * Intended for the merged dashboard Route Completion card and unified drill-down table.
+   *
+   * - Exceptions are task statuses: Rejected, Redo (date-scoped by dueDate)
+   * - Non-compliance is driven by complianceSnapshot flags (date-scoped by snapshot.date)
+   */
+  const date = datePrefixFromIso(dateIso);
+  const routesList = scopedState?.routes || [];
+  const tasksList = scopedState?.tasks || [];
+
+  const tasksToday = tasksList.filter((t) => (t.dueDate || "").slice(0, 10) === date);
+
+  // Map: routeId -> tasksToday[]
+  const tasksByRoute = new Map();
+  tasksToday.forEach((t) => {
+    if (!t.routeId) return;
+    if (!tasksByRoute.has(t.routeId)) tasksByRoute.set(t.routeId, []);
+    tasksByRoute.get(t.routeId).push(t);
+  });
+
+  const flags = complianceSnapshot?.flags || [];
+  const flagsToday = flags.filter((f) => (f.date || "").slice(0, 10) === date);
+
+  // Map: routeId -> compliance flags
+  const flagsByRoute = new Map();
+  flagsToday.forEach((f) => {
+    if (!f.routeId) return;
+    if (!flagsByRoute.has(f.routeId)) flagsByRoute.set(f.routeId, []);
+    flagsByRoute.get(f.routeId).push(f);
+  });
+
+  const totals = computeOverallRouteCompletion(routesList);
+
+  const totalsExceptions = computeExceptions(tasksToday);
+  const totalsNonCompliance = flagsToday.length;
+
+  const perRoute = routesList
+    .map((r) => {
+      const planned = Number(r.planned_stops || 0);
+      const completed = Number(r.completed_stops || 0);
+      const remaining = Math.max(0, planned - completed);
+      const completionPercent = planned <= 0 ? 0 : clampPct((completed / planned) * 100);
+
+      const routeTasks = tasksByRoute.get(r.id) || [];
+      const rejectedTasks = routeTasks.filter((t) => t.status === Statuses.REJECTED);
+      const redoTasks = routeTasks.filter((t) => t.status === Statuses.REDO);
+
+      const routeFlags = flagsByRoute.get(r.id) || [];
+      const nonComplianceCount = routeFlags.length;
+
+      // Worst severity and "latest reasons" hints.
+      const sevRank = { high: 3, medium: 2, low: 1 };
+      const worstComplianceSeverity = routeFlags.reduce((acc, f) => {
+        if (!acc) return f.severity || "";
+        return (sevRank[f.severity] || 0) > (sevRank[acc] || 0) ? f.severity : acc;
+      }, "");
+
+      return {
+        routeId: r.id,
+        routeName: r.name,
+        regionId: r.regionId,
+        planned,
+        completed,
+        remaining,
+        completionPercent,
+        completionStatus: computeRouteStatus({ completion_percent: completionPercent }),
+        exceptions: {
+          rejected: rejectedTasks.length,
+          redo: redoTasks.length,
+          total: rejectedTasks.length + redoTasks.length,
+          topReasons: topReasons([...rejectedTasks, ...redoTasks], { limit: 2 }),
+        },
+        compliance: {
+          nonComplianceCount,
+          worstSeverity: worstComplianceSeverity,
+          // show up to 2 latest messages as a "reason" hint
+          latestMessages: routeFlags
+            .slice()
+            .sort((a, b) => String(b.id || "").localeCompare(String(a.id || "")))
+            .slice(0, 2)
+            .map((f) => ({ severity: f.severity, message: f.message, rule: f.rule })),
+        },
+      };
+    })
+    .sort((a, b) => {
+      // Default sort: most exceptions+noncompliance first, then lowest completion
+      const ax = (a.exceptions.total || 0) + (a.compliance.nonComplianceCount || 0);
+      const bx = (b.exceptions.total || 0) + (b.compliance.nonComplianceCount || 0);
+      if (bx !== ax) return bx - ax;
+      return Number(a.completionPercent || 0) - Number(b.completionPercent || 0);
+    });
+
+  return {
+    date,
+    overallCompletionPercent: totals.completionPercent,
+    totalPlannedStops: totals.planned,
+    totalCompletedStops: totals.completed,
+    totals: {
+      exceptions: totalsExceptions,
+      nonCompliance: totalsNonCompliance,
+    },
+    perRoute,
+  };
 }
 
 // PUBLIC_INTERFACE
