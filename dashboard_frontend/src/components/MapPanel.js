@@ -375,6 +375,91 @@ function FitToVisible({ bounds }) {
   return null;
 }
 
+/**
+ * Disables/enables Leaflet interactions without unmounting the map.
+ * This preserves map instance state (layers, caches, bounds) while preventing user pan/zoom/keyboard/touch interactions.
+ */
+// PUBLIC_INTERFACE
+function LeafletInteractionToggle({ disabled }) {
+  /** Toggle all Leaflet interaction handlers on the current map. */
+  const map = useMap();
+
+  React.useEffect(() => {
+    if (!map) return;
+
+    const enable = () => {
+      // Core interactions
+      try {
+        map.dragging?.enable?.();
+      } catch {}
+      try {
+        map.scrollWheelZoom?.enable?.();
+      } catch {}
+      try {
+        map.doubleClickZoom?.enable?.();
+      } catch {}
+      try {
+        map.boxZoom?.enable?.();
+      } catch {}
+      try {
+        map.keyboard?.enable?.();
+      } catch {}
+      try {
+        map.touchZoom?.enable?.();
+      } catch {}
+      try {
+        map.tap?.enable?.(); // mobile tap handler (if present)
+      } catch {}
+
+      // Some browsers/devices use the generic "gestureHandling" plugin; if present, re-enable.
+      try {
+        map.gestureHandling?.enable?.();
+      } catch {}
+    };
+
+    const disableAll = () => {
+      try {
+        map.dragging?.disable?.();
+      } catch {}
+      try {
+        map.scrollWheelZoom?.disable?.();
+      } catch {}
+      try {
+        map.doubleClickZoom?.disable?.();
+      } catch {}
+      try {
+        map.boxZoom?.disable?.();
+      } catch {}
+      try {
+        map.keyboard?.disable?.();
+      } catch {}
+      try {
+        map.touchZoom?.disable?.();
+      } catch {}
+      try {
+        map.tap?.disable?.();
+      } catch {}
+      try {
+        map.gestureHandling?.disable?.();
+      } catch {}
+
+      // If a contextmenu handler is registered (plugin), it often listens on the container.
+      // We don't mutate styles/DOM, but we can best-effort disable the handler if it exists.
+      try {
+        map.contextmenu?.disable?.();
+      } catch {}
+    };
+
+    if (disabled) disableAll();
+    else enable();
+
+    // On unmount, restore interactions to avoid leaving the map locked if component tree changes.
+    return () => enable();
+  }, [map, disabled]);
+
+  return null;
+}
+
 // PUBLIC_INTERFACE
 function TrackZoom({ onZoom }) {
   /** Tracks Leaflet zoom changes so polyline stroke weight can be zoom-aware. */
@@ -995,6 +1080,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
           <>
             <MapContainer center={initialCenter} zoom={12} scrollWheelZoom style={{ height: "100%", width: "100%" }} preferCanvas zoomControl>
               <LeafletControlTheming />
+              <LeafletInteractionToggle disabled={isRouteDetailsModalOpen} />
 
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
