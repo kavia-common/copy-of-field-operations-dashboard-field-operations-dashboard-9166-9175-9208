@@ -258,7 +258,14 @@
 
 /* KPI cards on Dashboard: enforce consistent height and a stable internal layout */
 .kpiCardFixed {
-  height: 260px; /* fixed uniform height across Route Completion / Tasks / Engineer Allocation */
+  /*
+    Use DPR card height as the reference:
+    - DPR is content-driven (no fixed height).
+    - For the other KPI cards, we keep a consistent baseline height but allow growth if content needs it.
+    This prevents mismatch across breakpoints where DPR may become taller.
+  */
+  min-height: 260px; /* baseline uniform height across Route Completion / Tasks / Engineer Allocation */
+  height: auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
