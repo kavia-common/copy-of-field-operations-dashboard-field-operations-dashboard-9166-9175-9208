@@ -273,6 +273,115 @@ export function computeMetrics(scopedState) {
   };
 }
 
+function datePrefixFromIso(dateIso) {
+  return (dateIso || nowIso()).slice(0, 10);
+}
+
+// PUBLIC_INTERFACE
+export function computeRouteCompletionSummary(scopedState, { dateIso } = {}) {
+  /** Computes overall route completion + a per-route list ordered by most remaining stops. */
+  const routesList = scopedState?.routes || [];
+  const totals = computeOverallRouteCompletion(routesList);
+
+  const perRoute = routesList
+    .map((r) => {
+      const planned = Number(r.planned_stops || 0);
+      const completed = Number(r.completed_stops || 0);
+      const remaining = Math.max(0, planned - completed);
+      const completionPercent = planned <= 0 ? 0 : clampPct((completed / planned) * 100);
+      return {
+        routeId: r.id,
+        routeName: r.name,
+        regionId: r.regionId,
+        planned,
+        completed,
+        remaining,
+        completionPercent,
+      };
+    })
+    .sort((a, b) => b.remaining - a.remaining);
+
+  return {
+    date: datePrefixFromIso(dateIso),
+    overallCompletionPercent: totals.completionPercent,
+    totalPlannedStops: totals.planned,
+    totalCompletedStops: totals.completed,
+    perRoute,
+  };
+}
+
+// PUBLIC_INTERFACE
+export function computeAllocationSummary(fullState, scopedState, { dateIso } = {}) {
+  /**
+   * Computes allocation summary based on persisted assignments (fullState),
+   * with engineer visibility (scope) derived from scopedState.
+   */
+  const date = datePrefixFromIso(dateIso);
+  const engineersInScope = (scopedState?.users || []).filter((u) => u.role === "Field Engineer");
+  const assignments = fullState?.engineerAssignments || [];
+
+  const assignedEngineerIds = new Set(assignments.map((a) => a.engineerId));
+  const allocated = engineersInScope.filter((e) => assignedEngineerIds.has(e.id));
+  const unallocated = engineersInScope.filter((e) => !assignedEngineerIds.has(e.id));
+
+  const workloadByEngineer = computeEngineerWorkload(fullState, { dateIso: date });
+  const avgWorkload =
+    engineersInScope.length === 0
+      ? 0
+      : Math.round(
+          engineersInScope.reduce((acc, e) => acc + (workloadByEngineer[e.id]?.totalLoad || 0), 0) / engineersInScope.length
+        );
+
+  return {
+    date,
+    engineersInScopeCount: engineersInScope.length,
+    allocatedCount: allocated.length,
+    unallocatedCount: unallocated.length,
+    unallocatedEngineerIds: unallocated.map((e) => e.id),
+    avgWorkloadPerEngineer: avgWorkload,
+  };
+}
+
+// PUBLIC_INTERFACE
+export function computeExceptionsSummary(scopedState, { dateIso } = {}) {
+  /** Computes rejected/redo counts (date scoped) plus optional daily counts for a short trend. */
+  const date = datePrefixFromIso(dateIso);
+  const tasksList = scopedState?.tasks || [];
+
+  const tasksToday = tasksList.filter((t) => (t.dueDate || "").slice(0, 10) === date);
+  const today = computeExceptions(tasksToday);
+
+  // Simple 7-day trend by dueDate (counts per day). Used only if UI opts to show it.
+  const trendDays = 7;
+  const trend = [];
+  for (let i = trendDays - 1; i >= 0; i -= 1) {
+    const d = new Date(date);
+    d.setDate(d.getDate() - i);
+    const day = d.toISOString().slice(0, 10);
+    const dayTasks = tasksList.filter((t) => (t.dueDate || "").slice(0, 10) === day);
+    const dayExceptions = computeExceptions(dayTasks);
+    trend.push({ date: day, total: dayExceptions.total, rejected: dayExceptions.rejected, redo: dayExceptions.redo });
+  }
+
+  return { date, today, trend };
+}
+
+// PUBLIC_INTERFACE
+export function computeDprSnapshot(state, user, { dateIso } = {}) {
+  /** Small KPI subset for dashboard DPR card (planned vs completed, on-hold, postponed). */
+  const date = datePrefixFromIso(dateIso);
+  const scoped = getScopedDomain(state, user) || state;
+
+  const tasksToday = (scoped.tasks || []).filter((t) => (t.dueDate || "").slice(0, 10) === date);
+
+  const planned = tasksToday.length;
+  const completed = tasksToday.filter((t) => t.status === Statuses.COMPLETED).length;
+  const onHold = tasksToday.filter((t) => t.status === Statuses.ON_HOLD).length;
+  const postponed = tasksToday.filter((t) => t.status === Statuses.POSTPONED).length;
+
+  return { date, planned, completed, onHold, postponed };
+}
+
 // PUBLIC_INTERFACE
 export function updateTaskStatus(state, { taskId, toStatus, reason, actorUserId }) {
   /**

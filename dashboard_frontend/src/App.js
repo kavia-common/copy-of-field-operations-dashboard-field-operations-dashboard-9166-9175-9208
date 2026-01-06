@@ -107,7 +107,12 @@ function App() {
                   </div>
                 </div>
 
-                <DashboardPage scopedState={scopedState} />
+                <DashboardPage
+                  scopedState={scopedState}
+                  fullState={domainState}
+                  setFullState={setDomainState}
+                  currentUser={currentUser}
+                />
               </AppShell>
             </RequireAuth>
           }
