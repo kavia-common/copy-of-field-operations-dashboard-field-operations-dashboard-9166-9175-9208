@@ -2,7 +2,12 @@ import React, { useMemo, useRef } from "react";
 import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { createPortal } from "react-dom";
-import { computeRouteCompletionCriteriaForRoute, createLruCache, stableWaypointsHash } from "../state/domainStore";
+import {
+  computeRouteCompletionCriteriaForRoute,
+  createLruCache,
+  selectRouteCommentsForDate,
+  stableWaypointsHash,
+} from "../state/domainStore";
 
 // Optional plugin: fullscreen control (adds L.control.fullscreen)
 import "leaflet.fullscreen";
@@ -824,6 +829,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         ? "In progress"
         : "Not completed";
 
+    // Route-level comments sourced from persisted task history/notes (role-scoped via scopedState).
+    // We intentionally keep this compact and do not include engineer names/IDs.
+    const comments = selectRouteCommentsForDate(scopedState, { routeId: route.id });
+
     return {
       routeId: route.id,
       routeName: route.name || route.id,
@@ -836,6 +845,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       strictStatus,
       completionPercent,
       isStrictCompleted: Boolean(criteria?.isCompleted),
+      comments,
     };
   }, [routePopup, activeRoutes, routeCompletionById, scopedState]);
 
@@ -1187,6 +1197,31 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       <div className="mini" style={{ marginTop: 2, color: "var(--ocean-muted)" }}>
                         Strict completion requires <strong>all waypoints covered</strong> and <strong>all tasks completed</strong>.
                       </div>
+
+                      {Array.isArray(routePopupDetails.comments) && routePopupDetails.comments.length > 0 ? (
+                        <>
+                          <hr className="hr" style={{ margin: "10px 0" }} />
+                          <div style={{ fontWeight: 900, fontSize: 12, color: "var(--ocean-text)" }}>Comments</div>
+                          <div style={{ display: "grid", gap: 6 }}>
+                            {routePopupDetails.comments.slice(0, 4).map((c) => (
+                              <div key={c.id} className="mini" style={{ lineHeight: 1.25 }}>
+                                <strong style={{ textTransform: "capitalize" }}>
+                                  {String(c.type || "")
+                                    .replaceAll("_", " ")
+                                    .trim()}
+                                  :
+                                </strong>{" "}
+                                {c.text}
+                              </div>
+                            ))}
+                            {routePopupDetails.comments.length > 4 ? (
+                              <div className="mini" style={{ color: "var(--ocean-muted)" }}>
+                                +{routePopupDetails.comments.length - 4} more
+                              </div>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </Popup>

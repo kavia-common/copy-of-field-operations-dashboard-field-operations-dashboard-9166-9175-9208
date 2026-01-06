@@ -1074,6 +1074,95 @@ export function updateTaskStatus(state, { taskId, toStatus, reason, actorUserId 
   return { ok: true, state: next };
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Collects compact, route-level comments/notes for a given date from persisted task state + status history.
+ *
+ * This is used by MapPanel route click popups to show engineer/task comments (hold reasons, rejection/redo notes)
+ * without exposing engineer identities.
+ *
+ * What is considered a “comment”:
+ * - statusHistory reasons for task transitions to: on_hold, postponed, rejected, redo
+ * - task.rejection_reason for tasks currently rejected
+ * - task.redo_reason for tasks currently in redo
+ *
+ * Filtering:
+ * - Only tasks belonging to the given routeId
+ * - Only items whose timestamp/dueDate matches the YYYY-MM-DD prefix of dateIso (defaults to “today”)
+ */
+export function selectRouteCommentsForDate(scopedState, { routeId, dateIso } = {}) {
+  const date = datePrefixFromIso(dateIso);
+  if (!scopedState || !routeId) return [];
+
+  const tasksForRoute = (scopedState.tasks || []).filter((t) => t.routeId === routeId);
+  if (tasksForRoute.length === 0) return [];
+
+  const tasksById = new Map(tasksForRoute.map((t) => [t.id, t]));
+
+  const commentItems = [];
+
+  // 1) History-based reasons (today only)
+  const allowed = new Set([Statuses.ON_HOLD, Statuses.POSTPONED, Statuses.REJECTED, Statuses.REDO]);
+  (scopedState.statusHistory || [])
+    .filter((h) => h?.entityType === "task" && tasksById.has(h.entityId))
+    .filter((h) => allowed.has(h.toStatus))
+    .filter((h) => String(h.timestamp || "").slice(0, 10) === date)
+    .forEach((h) => {
+      const reason = String(h.reason || "").trim();
+      if (!reason) return;
+      commentItems.push({
+        id: h.id || `${h.entityId}_${h.toStatus}_${h.timestamp || ""}`,
+        taskId: h.entityId,
+        type: h.toStatus,
+        timestamp: h.timestamp || "",
+        text: reason,
+      });
+    });
+
+  // 2) Task-record notes for tasks due today (so popups still show useful notes even if history isn’t “today”)
+  tasksForRoute
+    .filter((t) => String(t.dueDate || "").slice(0, 10) === date)
+    .forEach((t) => {
+      const rej = String(t.rejection_reason || "").trim();
+      const redo = String(t.redo_reason || "").trim();
+
+      if (t.status === Statuses.REJECTED && rej) {
+        commentItems.push({
+          id: `task_${t.id}_rejection_reason`,
+          taskId: t.id,
+          type: Statuses.REJECTED,
+          timestamp: "",
+          text: rej,
+        });
+      }
+
+      if (t.status === Statuses.REDO && redo) {
+        commentItems.push({
+          id: `task_${t.id}_redo_reason`,
+          taskId: t.id,
+          type: Statuses.REDO,
+          timestamp: "",
+          text: redo,
+        });
+      }
+    });
+
+  // De-dupe by text+type to keep section compact.
+  const seen = new Set();
+  const deduped = [];
+  commentItems.forEach((c) => {
+    const key = `${c.type}::${c.text}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(c);
+  });
+
+  // Sort: most recent timestamps first; then stable by id.
+  deduped.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")) || String(a.id).localeCompare(String(b.id)));
+
+  return deduped;
+}
+
 // PUBLIC_INTERFACE
 export function allocateEngineerToRoute(state, { engineerId, routeId }) {
   /** Assign/unassign engineer to a route. If routeId is empty, unassign. */
