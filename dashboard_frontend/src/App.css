@@ -629,13 +629,21 @@
   We scope this to .mapBox only to avoid impacting any future maps elsewhere.
   Intended routes/waypoints already set explicit pathOptions and will not be affected.
 */
-.mapBox .leaflet-overlay-pane svg path.leaflet-interactive {
-  stroke: inherit;
-}
+/*
+  Leaflet SVG path defaults:
+  - Leaflet default stroke is #3388ff, which can show up for transient/plugin layers.
+  - However, we MUST NOT override our route polylines, which explicitly set `pathOptions`
+    (status fill/body + top stroke meaning). A broad `svg path { stroke: ...; fill: ... }`
+    will force everything to look the same (often perceived as "still blue").
 
-.mapBox .leaflet-overlay-pane svg path {
-  stroke: rgba(17, 24, 39, 0.65);
-  fill: rgba(255, 255, 255, 0.55);
+  Fix:
+  - Only neutralize the default-blue for interactive paths that *do not* have an explicit
+    stroke style attribute (rare, but can happen with plugin artifacts).
+  - Do not set a global fill at all (polylines are strokes; a forced fill can create
+    confusing visual blobs and override our layered “fill body” effect).
+*/
+.mapBox .leaflet-overlay-pane svg path.leaflet-interactive:not([style*="stroke"]) {
+  stroke: rgba(17, 24, 39, 0.55);
 }
 
 /* Ocean Professional map controls (custom + plugin-friendly) */
