@@ -29,6 +29,10 @@ import "leaflet.fullscreen";
  *    - Actual path: solid (route color) using OSRM-snapped geometry when available
  *    - Deviation: red highlight overlay when compliance flags exist for that route/engineer
  *
+ * Additional UX implemented:
+ * - Layer toggles (planned/actual/deviations/waypoints) persisted during session
+ * - Fit-to-bounds considers only currently visible layers
+ *
  * Notes:
  * - Uses OpenStreetMap tiles (no API keys required).
  * - Click a route polyline to select it (filters other panels via selectedRouteId).
@@ -340,6 +344,45 @@ function createConcurrencyLimiter(maxConcurrent = 2) {
 }
 
 /**
+ * Persisted (during session) map layer toggles.
+ * We store per-region so it doesn't feel like toggles "break" when switching regions.
+ */
+const LAYER_TOGGLES_STORAGE_PREFIX = "fod.mapPanel.layerToggles.v1";
+function layerTogglesStorageKey({ regionId }) {
+  return `${LAYER_TOGGLES_STORAGE_PREFIX}::${regionId || "all"}`;
+}
+function defaultLayerToggles() {
+  return { planned: true, actual: true, deviations: true, waypoints: true };
+}
+function coerceLayerToggles(maybe) {
+  const d = defaultLayerToggles();
+  const v = maybe && typeof maybe === "object" ? maybe : {};
+  return {
+    planned: Boolean(v.planned ?? d.planned),
+    actual: Boolean(v.actual ?? d.actual),
+    deviations: Boolean(v.deviations ?? d.deviations),
+    waypoints: Boolean(v.waypoints ?? d.waypoints),
+  };
+}
+function readLayerTogglesFromStorage({ regionId }) {
+  try {
+    const raw = window.localStorage.getItem(layerTogglesStorageKey({ regionId }));
+    if (!raw) return defaultLayerToggles();
+    const parsed = JSON.parse(raw);
+    return coerceLayerToggles(parsed);
+  } catch {
+    return defaultLayerToggles();
+  }
+}
+function writeLayerTogglesToStorage({ regionId, toggles }) {
+  try {
+    window.localStorage.setItem(layerTogglesStorageKey({ regionId }), JSON.stringify(coerceLayerToggles(toggles)));
+  } catch {
+    // ignore if storage is blocked
+  }
+}
+
+/**
  * Forces Leaflet to recompute its layout when mounted and when triggerKey changes.
  */
 // PUBLIC_INTERFACE
@@ -614,6 +657,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   // Multi-route visibility set.
   const [visibleRouteIds, setVisibleRouteIds] = React.useState(() => new Set());
 
+  // Layer toggles: planned/actual/deviations/waypoints (persist per region during session).
+  const [layerToggles, setLayerToggles] = React.useState(() => defaultLayerToggles());
+
   // App-level route details modal (replaces Leaflet inline popup to avoid shrinking inside the map).
   const [routeDetailsModalRouteId, setRouteDetailsModalRouteId] = React.useState("");
 
@@ -643,6 +689,18 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     const first = (scopedState.regions || [])[0]?.id || "";
     setSelectedRegionId(first);
   }, [scopedState, selectedRegionId]);
+
+  // When region changes, load saved layer toggles (or default all ON).
+  React.useEffect(() => {
+    if (!selectedRegionId) return;
+    setLayerToggles(readLayerTogglesFromStorage({ regionId: selectedRegionId }));
+  }, [selectedRegionId]);
+
+  // Persist toggles on change.
+  React.useEffect(() => {
+    if (!selectedRegionId) return;
+    writeLayerTogglesToStorage({ regionId: selectedRegionId, toggles: layerToggles });
+  }, [selectedRegionId, layerToggles]);
 
   const routesInRegion = useMemo(() => {
     if (!selectedRegionId) return [];
@@ -853,14 +911,38 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
   const latLngsForBounds = useMemo(() => {
     const pts = [];
+
+    // Routes: include only visible route layers (planned/actual) depending on toggles.
     activeRoutes.forEach((r) => {
-      toLatLngs(r.polyline).forEach((p) => pts.push(p));
+      const waypointMeta = routesWaypointMetaByRouteId.get(r.id);
+      const snapKey = waypointMeta?.key || "";
+      const snapped = snapKey ? snappedByKey?.[snapKey] || osrmCacheRef.current.get(snapKey) : null;
+
+      const rawPlannedPositions = toLatLngs(r.polyline);
+      const plannedPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : rawPlannedPositions;
+      const actualPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : [];
+
+      if (layerToggles.planned) {
+        plannedPositions.forEach((p) => pts.push(p));
+      }
+      if (layerToggles.actual) {
+        actualPositions.forEach((p) => pts.push(p));
+      }
+
+      // If both planned+actual are off but waypoints are on, allow bounds to still include the route area.
+      if (!layerToggles.planned && !layerToggles.actual && layerToggles.waypoints) {
+        rawPlannedPositions.forEach((p) => pts.push(p));
+      }
     });
+
+    // Engineers: keep current behavior (engineers always shown), but ensure bounds uses their positions.
     (activeLocations || []).forEach((l) => {
       if (Number.isFinite(l.lat) && Number.isFinite(l.lng)) pts.push([l.lat, l.lng]);
     });
+
+    // If every layer is off but engineers exist, bounds is still valid (engineers are still visible).
     return pts;
-  }, [activeRoutes, activeLocations]);
+  }, [activeRoutes, activeLocations, layerToggles, routesWaypointMetaByRouteId, snappedByKey]);
 
   const hasAnyGeo = latLngsForBounds.length > 0;
 
@@ -938,6 +1020,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       .map((r) => ({ routeId: r.id, label: r.name || r.id, color: routeColorById[r.id] || "#1E3A8A" }));
   }, [routesInRegion, routeColorById]);
 
+  const visibleLayerCount = Object.values(layerToggles).filter(Boolean).length;
+
   return (
     <div className="card">
       <div className="cardHeader">
@@ -974,68 +1058,134 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         ) : routesInRegion.length === 0 ? (
           <div className="notice">No routes in this region.</div>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: 10,
-              alignItems: "start",
-            }}
-            aria-label="Route visibility controls"
-          >
-            {routesInRegion
-              .slice()
-              .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)))
-              .map((r) => {
-                const checked = visibleRouteIds.has(r.id);
-                const color = routeColorById[r.id] || "#1E3A8A";
-                return (
-                  <label
-                    key={r.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "10px 10px",
-                      borderRadius: 12,
-                      border: "1px solid var(--ocean-border)",
-                      background: "rgba(255,255,255,0.72)",
-                      cursor: "pointer",
-                      userSelect: "none",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        setVisibleRouteIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(r.id)) next.delete(r.id);
-                          else next.add(r.id);
-
-                          if (!next.has(r.id) && selectedRouteId === r.id) onSelectRouteId?.("");
-                          return next;
-                        });
-                      }}
-                      aria-label={`Toggle visibility for ${r.name || r.id}`}
-                    />
-                    <span
-                      aria-hidden="true"
+          <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 10,
+                alignItems: "start",
+              }}
+              aria-label="Route visibility controls"
+            >
+              {routesInRegion
+                .slice()
+                .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)))
+                .map((r) => {
+                  const checked = visibleRouteIds.has(r.id);
+                  const color = routeColorById[r.id] || "#1E3A8A";
+                  return (
+                    <label
+                      key={r.id}
                       style={{
-                        width: 14,
-                        height: 14,
-                        borderRadius: 99,
-                        background: color,
-                        boxShadow: "0 0 0 2px rgba(255,255,255,0.9) inset",
-                        border: "1px solid rgba(17,24,39,0.18)",
-                        flex: "0 0 auto",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 10px",
+                        borderRadius: 12,
+                        border: "1px solid var(--ocean-border)",
+                        background: "rgba(255,255,255,0.72)",
+                        cursor: "pointer",
+                        userSelect: "none",
                       }}
-                    />
-                    <span style={{ fontWeight: 800, fontSize: 13, color: "var(--ocean-text)" }}>{r.name || r.id}</span>
-                  </label>
-                );
-              })}
-          </div>
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setVisibleRouteIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(r.id)) next.delete(r.id);
+                            else next.add(r.id);
+
+                            if (!next.has(r.id) && selectedRouteId === r.id) onSelectRouteId?.("");
+                            return next;
+                          });
+                        }}
+                        aria-label={`Toggle visibility for ${r.name || r.id}`}
+                      />
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: 99,
+                          background: color,
+                          boxShadow: "0 0 0 2px rgba(255,255,255,0.9) inset",
+                          border: "1px solid rgba(17,24,39,0.18)",
+                          flex: "0 0 auto",
+                        }}
+                      />
+                      <span style={{ fontWeight: 800, fontSize: 13, color: "var(--ocean-text)" }}>{r.name || r.id}</span>
+                    </label>
+                  );
+                })}
+            </div>
+
+            <div style={{ marginTop: 10 }} aria-label="Map layer toggles">
+              <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)", marginBottom: 8 }}>
+                Layers
+              </div>
+
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                <label className="badge" style={{ cursor: "pointer", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={layerToggles.planned}
+                    onChange={() => setLayerToggles((prev) => ({ ...prev, planned: !prev.planned }))}
+                    aria-label="Toggle planned route layer"
+                  />
+                  Planned route
+                </label>
+
+                <label className="badge" style={{ cursor: "pointer", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={layerToggles.actual}
+                    onChange={() => setLayerToggles((prev) => ({ ...prev, actual: !prev.actual }))}
+                    aria-label="Toggle actual path layer"
+                  />
+                  Actual path
+                </label>
+
+                <label className="badge" style={{ cursor: "pointer", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={layerToggles.deviations}
+                    onChange={() => setLayerToggles((prev) => ({ ...prev, deviations: !prev.deviations }))}
+                    aria-label="Toggle deviations overlay"
+                  />
+                  Deviations
+                </label>
+
+                <label className="badge" style={{ cursor: "pointer", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={layerToggles.waypoints}
+                    onChange={() => setLayerToggles((prev) => ({ ...prev, waypoints: !prev.waypoints }))}
+                    aria-label="Toggle waypoint markers"
+                  />
+                  Waypoints
+                </label>
+
+                <button
+                  className="btn btnGhost"
+                  style={{ padding: "8px 10px", fontSize: 12 }}
+                  onClick={() => setLayerToggles(defaultLayerToggles())}
+                  disabled={visibleLayerCount === 4}
+                  aria-label="Reset all layers to visible"
+                >
+                  Reset layers
+                </button>
+              </div>
+
+              {visibleLayerCount === 0 ? (
+                <div className="notice" style={{ marginTop: 10 }}>
+                  All layers are hidden. Turn on at least one layer to see routes/overlays. (Engineers may still appear.)
+                </div>
+              ) : null}
+            </div>
+          </>
         )}
       </div>
 
@@ -1118,83 +1268,89 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 const deviationStyle = deviationHighlightStyle({ zoom: mapZoom });
                 const sel = selectionHighlightStyle({ zoom: mapZoom });
 
-                const showDeviation = Boolean(hasDeviationByRouteId?.[r.id]);
+                const showDeviationForRoute = Boolean(hasDeviationByRouteId?.[r.id]);
+
+                const showPlanned = layerToggles.planned;
+                const showActual = layerToggles.actual;
+                const showDeviationOverlay = layerToggles.deviations && showDeviationForRoute;
 
                 return (
                   <React.Fragment key={`route_stack_${r.id}`}>
-                    <Polyline positions={plannedPositions} pathOptions={haloStyle} interactive={false} />
+                    {showPlanned ? <Polyline positions={plannedPositions} pathOptions={haloStyle} interactive={false} /> : null}
 
-                    <Polyline
-                      positions={plannedPositions}
-                      pathOptions={plannedStyle}
-                      eventHandlers={{
-                        click: () => {
-                          // Preserve existing selection behavior (filters other panels, highlights route).
-                          onSelectRouteId?.(r.id);
+                    {showPlanned ? (
+                      <Polyline
+                        positions={plannedPositions}
+                        pathOptions={plannedStyle}
+                        eventHandlers={{
+                          click: () => {
+                            // Preserve existing selection behavior (filters other panels, highlights route).
+                            onSelectRouteId?.(r.id);
 
-                          // Replace Leaflet inline popup (shrinks in map) with app-level modal.
-                          setRouteDetailsModalRouteId(r.id);
-                        },
-                      }}
-                    >
-                      <Tooltip sticky direction="top" opacity={0.95}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: 99,
-                              background: color,
-                              border: "1px solid rgba(17,24,39,0.25)",
-                            }}
-                          />
-                          <div style={{ fontWeight: 900 }}>{r.name}</div>
-                        </div>
-
-                        <div className="mini">
-                          Planned: <strong>dashed</strong> · Actual: <strong>solid</strong>
-                        </div>
-
-                        {snapKey ? (
-                          <div className="mini">
-                            Routing:{" "}
-                            <strong>
-                              {snapStatus === "pending"
-                                ? "snapping…"
-                                : snapped?.source === "osrm"
-                                  ? "snapped to OSRM"
-                                  : snapStatus === "error"
-                                    ? "fallback (dummy)"
-                                    : "fallback (dummy)"}
-                            </strong>
+                            // Replace Leaflet inline popup (shrinks in map) with app-level modal.
+                            setRouteDetailsModalRouteId(r.id);
+                          },
+                        }}
+                      >
+                        <Tooltip sticky direction="top" opacity={0.95}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: 99,
+                                background: color,
+                                border: "1px solid rgba(17,24,39,0.25)",
+                              }}
+                            />
+                            <div style={{ fontWeight: 900 }}>{r.name}</div>
                           </div>
-                        ) : null}
 
-                        {showDeviation ? (
                           <div className="mini">
-                            Deviation: <strong style={{ color: DEVIATION_RED }}>highlighted</strong>
+                            Planned: <strong>dashed</strong> · Actual: <strong>solid</strong>
                           </div>
-                        ) : (
-                          <div className="mini">Deviation: none</div>
-                        )}
 
-                        <div className="mini">Click to select</div>
-                      </Tooltip>
-                    </Polyline>
+                          {snapKey ? (
+                            <div className="mini">
+                              Routing:{" "}
+                              <strong>
+                                {snapStatus === "pending"
+                                  ? "snapping…"
+                                  : snapped?.source === "osrm"
+                                    ? "snapped to OSRM"
+                                    : snapStatus === "error"
+                                      ? "fallback (dummy)"
+                                      : "fallback (dummy)"}
+                              </strong>
+                            </div>
+                          ) : null}
 
-                    {actualPositions.length >= 2 ? <Polyline positions={actualPositions} pathOptions={actualStyle} interactive={false} /> : null}
+                          {showDeviationForRoute ? (
+                            <div className="mini">
+                              Deviation: <strong style={{ color: DEVIATION_RED }}>highlighted</strong>
+                            </div>
+                          ) : (
+                            <div className="mini">Deviation: none</div>
+                          )}
 
-                    {showDeviation ? (
+                          <div className="mini">Click to select</div>
+                        </Tooltip>
+                      </Polyline>
+                    ) : null}
+
+                    {showActual && actualPositions.length >= 2 ? <Polyline positions={actualPositions} pathOptions={actualStyle} interactive={false} /> : null}
+
+                    {showDeviationOverlay ? (
                       <>
-                        <Polyline positions={plannedPositions} pathOptions={deviationStyle} interactive={false} />
-                        {actualPositions.length >= 2 ? (
+                        {showPlanned ? <Polyline positions={plannedPositions} pathOptions={deviationStyle} interactive={false} /> : null}
+                        {showActual && actualPositions.length >= 2 ? (
                           <Polyline positions={actualPositions} pathOptions={deviationStyle} interactive={false} />
                         ) : null}
                       </>
                     ) : null}
 
-                    {isSelected ? (
+                    {isSelected && showPlanned ? (
                       <>
                         <Polyline positions={plannedPositions} pathOptions={sel.halo} interactive={false} />
                         <Polyline positions={plannedPositions} pathOptions={sel.stroke} interactive={false} />
@@ -1251,39 +1407,41 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
               {/* Leaflet inline popup intentionally removed; replaced by app-level modal to avoid map shrinking. */}
 
-              {waypointLayers.map((layer) => {
-                const isSelected = selectedRouteId ? layer.routeId === selectedRouteId : false;
-                const radius = isSelected ? 5 : 4;
-                const opacity = isSelected ? 0.9 : 0.55;
+              {layerToggles.waypoints
+                ? waypointLayers.map((layer) => {
+                    const isSelected = selectedRouteId ? layer.routeId === selectedRouteId : false;
+                    const radius = isSelected ? 5 : 4;
+                    const opacity = isSelected ? 0.9 : 0.55;
 
-                return layer.points.map((wp) => (
-                  <CircleMarker
-                    key={wp.id}
-                    center={[wp.lat, wp.lng]}
-                    radius={radius}
-                    pathOptions={{
-                      color: "rgba(17,24,39,0.65)",
-                      fillColor: "#FFFFFF",
-                      fillOpacity: opacity,
-                      weight: 1,
-                    }}
-                  >
-                    <Tooltip direction="top" opacity={0.95}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span
-                          aria-hidden="true"
-                          style={{ width: 10, height: 10, borderRadius: 99, background: layer.color, border: "1px solid rgba(17,24,39,0.18)" }}
-                        />
-                        <div style={{ fontWeight: 900 }}>{layer.routeName}</div>
-                      </div>
-                      <div className="mini">Checkpoint #{wp.idx + 1}</div>
-                      <div className="mini">
-                        Lat/Lng: {wp.lat.toFixed(4)}, {wp.lng.toFixed(4)}
-                      </div>
-                    </Tooltip>
-                  </CircleMarker>
-                ));
-              })}
+                    return layer.points.map((wp) => (
+                      <CircleMarker
+                        key={wp.id}
+                        center={[wp.lat, wp.lng]}
+                        radius={radius}
+                        pathOptions={{
+                          color: "rgba(17,24,39,0.65)",
+                          fillColor: "#FFFFFF",
+                          fillOpacity: opacity,
+                          weight: 1,
+                        }}
+                      >
+                        <Tooltip direction="top" opacity={0.95}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span
+                              aria-hidden="true"
+                              style={{ width: 10, height: 10, borderRadius: 99, background: layer.color, border: "1px solid rgba(17,24,39,0.18)" }}
+                            />
+                            <div style={{ fontWeight: 900 }}>{layer.routeName}</div>
+                          </div>
+                          <div className="mini">Checkpoint #{wp.idx + 1}</div>
+                          <div className="mini">
+                            Lat/Lng: {wp.lat.toFixed(4)}, {wp.lng.toFixed(4)}
+                          </div>
+                        </Tooltip>
+                      </CircleMarker>
+                    ));
+                  })
+                : null}
             </MapContainer>
 
             <div
@@ -1324,18 +1482,35 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
               <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
                 <div className="mini" style={{ fontWeight: 900, color: "var(--ocean-muted)", marginTop: 2 }}>
-                  Styles
+                  Visible layers
                 </div>
 
-                <div className="mini">
-                  Planned route: <strong>dashed</strong>
-                </div>
-                <div className="mini">
-                  Actual path: <strong>solid</strong>
-                </div>
-                <div className="mini">
-                  Deviation: <strong style={{ color: DEVIATION_RED }}>red highlight</strong>
-                </div>
+                {layerToggles.planned ? (
+                  <div className="mini">
+                    Planned route: <strong>dashed</strong>
+                  </div>
+                ) : null}
+                {layerToggles.actual ? (
+                  <div className="mini">
+                    Actual path: <strong>solid</strong>
+                  </div>
+                ) : null}
+                {layerToggles.deviations ? (
+                  <div className="mini">
+                    Deviations: <strong style={{ color: DEVIATION_RED }}>red highlight</strong>
+                  </div>
+                ) : null}
+                {layerToggles.waypoints ? (
+                  <div className="mini">
+                    Waypoints: <strong>white markers</strong>
+                  </div>
+                ) : null}
+
+                {visibleLayerCount === 0 ? (
+                  <div className="mini" style={{ color: "var(--ocean-muted)" }}>
+                    (No route layers enabled)
+                  </div>
+                ) : null}
 
                 <hr className="hr" style={{ margin: "6px 0" }} />
 
@@ -1344,7 +1519,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 </div>
 
                 {routeLegendRows.slice(0, 8).map((l) => (
-                  <div key={l.routeId} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div key={l.routeId} style={{ display: "flex", alignItems: "center", gap: 10, opacity: visibleRouteIds.has(l.routeId) ? 1 : 0.35 }}>
                     <span
                       aria-hidden="true"
                       style={{
@@ -1369,13 +1544,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   Engineers are shown as <strong>markers</strong> inheriting route color.
                 </div>
 
-                {anyOsrmUsed ? (
+                {anyOsrmUsed && layerToggles.actual ? (
                   <div className="mini" style={{ marginTop: 6 }}>
                     <strong>Actual paths snapped to OSRM</strong>
                   </div>
                 ) : null}
 
-                {selectedRouteId ? (
+                {selectedRouteId && layerToggles.planned ? (
                   <div className="mini" style={{ marginTop: 6 }}>
                     Selected route is highlighted in <strong>navy</strong>.
                   </div>
