@@ -52,7 +52,17 @@ function computeRouteCompletion(route) {
  * Tasks completeness is evaluated from the tasks list by routeId. If a route has
  * zero tasks, we treat tasks completeness as NOT satisfied (conservative default).
  */
-function computeRouteCompletionCriteriaForRoute(route, tasksList) {
+/**
+ * PUBLIC_INTERFACE
+ * Computes strict route completion criteria for a single route.
+ *
+ * Completion criteria (strict):
+ *  - All route waypoints/points covered (approximated by completed_stops >= planned_stops, and planned_stops > 0), AND
+ *  - All tasks associated with that route are completed (and there is at least 1 task).
+ *
+ * Used by multiple UI components (e.g., RouteCompletionCard, MapPanel) to ensure consistent status logic.
+ */
+export function computeRouteCompletionCriteriaForRoute(route, tasksList) {
   const plannedStops = Number(route?.planned_stops || 0);
   const completedStops = Number(route?.completed_stops || 0);
 

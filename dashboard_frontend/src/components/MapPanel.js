@@ -2,6 +2,7 @@ import React, { useMemo, useRef } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { createPortal } from "react-dom";
+import { computeRouteCompletionCriteriaForRoute } from "../state/domainStore";
 
 // Optional plugin: fullscreen control (adds L.control.fullscreen)
 import "leaflet.fullscreen";
@@ -92,7 +93,16 @@ function toTitleRule(rule) {
     .join(" ");
 }
 
-function routeToStyle(route, isSelected, complianceTone) {
+function routeToStyle({ route, isSelected, complianceTone, completionStatus }) {
+  /**
+   * Base route style rules:
+   * - Selected route: always navy highlight (highest priority).
+   * - Compliance overlay: dashed emphasis with severity color (still reflects completion in legend via other entries).
+   * - Otherwise: color strictly by completion status:
+   *    - completed => green
+   *    - in_progress => yellow
+   *    - not_completed => red
+   */
   if (isSelected) return { color: "#1E3A8A", weight: 5, opacity: 1.0 };
 
   // If complianceTone is provided, emphasize the route with a dashed alert style.
@@ -100,10 +110,10 @@ function routeToStyle(route, isSelected, complianceTone) {
   if (complianceTone === "medium") return { color: "#F59E0B", weight: 6, opacity: 0.9, dashArray: "10 8" };
   if (complianceTone === "low") return { color: "#111827", weight: 5, opacity: 0.85, dashArray: "6 6" };
 
-  const completion = Number(route.completion_percent || 0);
-  // green >= 90, amber 60-89, red < 60
-  if (completion >= 90) return { color: "#059669", weight: 4, opacity: 0.95 };
-  if (completion >= 60) return { color: "#F59E0B", weight: 4, opacity: 0.9 };
+  if (completionStatus === "completed") return { color: "#059669", weight: 4, opacity: 0.95 };
+  if (completionStatus === "in_progress") return { color: "#F59E0B", weight: 4, opacity: 0.9 };
+
+  // not_completed (default)
   return { color: "#DC2626", weight: 4, opacity: 0.9 };
 }
 
@@ -439,11 +449,46 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     return first ? [first.lat, first.lng] : [39.8283, -98.5795];
   }, [activeLocations]);
 
+  const routeCompletionById = useMemo(() => {
+    // Uses the strict completion definition in domainStore:
+    // completed ONLY when all waypoints covered AND all tasks completed.
+    const tasksList = scopedState?.tasks || [];
+    const m = {};
+    (activeRoutes || []).forEach((r) => {
+      m[r.id] = computeRouteCompletionCriteriaForRoute(r, tasksList);
+    });
+    return m;
+  }, [activeRoutes, scopedState?.tasks]);
+
+  const routeCompletionStatusById = useMemo(() => {
+    // completed: strict completion criteria satisfied
+    // in_progress: started (some waypoint progress OR any completed tasks) but not completed
+    // not_completed: not started / zero progress
+    const m = {};
+    (activeRoutes || []).forEach((r) => {
+      const criteria = routeCompletionById[r.id];
+      const plannedStops = Number(criteria?.plannedStops ?? r?.planned_stops ?? 0);
+      const completedStops = Number(criteria?.completedStops ?? r?.completed_stops ?? 0);
+      const completedTasks = Number(criteria?.completedTasks ?? 0);
+
+      const hasAnyProgress = completedStops > 0 || completedTasks > 0;
+      const isCompleted = Boolean(criteria?.isCompleted);
+
+      if (isCompleted) m[r.id] = "completed";
+      else if (hasAnyProgress) m[r.id] = "in_progress";
+      else m[r.id] = "not_completed";
+
+      // If there are no waypoints AND no tasks, treat as not started (conservative).
+      if (plannedStops <= 0 && Number(criteria?.totalTasks ?? 0) <= 0) m[r.id] = "not_completed";
+    });
+    return m;
+  }, [activeRoutes, routeCompletionById]);
+
   const legend = useMemo(() => {
     return [
-      { label: "Good (≥ 90% completion)", color: "#059669" },
-      { label: "Watch (60–89% completion)", color: "#F59E0B" },
-      { label: "At Risk (< 60% completion)", color: "#DC2626" },
+      { label: "Completed", color: "#059669" },
+      { label: "In progress", color: "#F59E0B" },
+      { label: "Not completed", color: "#DC2626" },
       { label: "Compliance alerts (dashed)", color: "#111827" },
     ];
   }, []);
@@ -508,14 +553,24 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
               <FocusDeviationOnMap focusDeviation={focusDeviation} markerRefs={markerRefs} onSelectRouteId={onSelectRouteId} />
 
-              {/* Base route polylines (completion + compliance coloring preserved) */}
+              {/* Base route polylines (strict completion coloring + compliance dashed emphasis) */}
               {activeRoutes.map((r) => {
                 const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
                 const complianceTone = worstSeverityByRoute[r.id] || "";
-                const style = routeToStyle(r, isSelected, complianceTone);
+                const completionStatus = routeCompletionStatusById?.[r.id] || "not_completed";
+                const criteria = routeCompletionById?.[r.id] || null;
+
+                const style = routeToStyle({ route: r, isSelected, complianceTone, completionStatus });
                 const positions = toLatLngs(r.polyline);
 
                 if (positions.length < 2) return null;
+
+                const statusLabel =
+                  completionStatus === "completed"
+                    ? "Completed"
+                    : completionStatus === "in_progress"
+                      ? "In progress"
+                      : "Not completed";
 
                 return (
                   <Polyline
@@ -528,9 +583,29 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   >
                     <Tooltip sticky direction="top" opacity={0.95}>
                       <div style={{ fontWeight: 800 }}>{r.name}</div>
+
+                      <div className="mini">
+                        Status: <strong>{statusLabel}</strong>
+                      </div>
+
                       <div className="mini">
                         Completion: <strong>{Number(r.completion_percent || 0)}%</strong>
                       </div>
+
+                      {criteria ? (
+                        <div className="mini">
+                          Waypoints:{" "}
+                          <strong>
+                            {criteria.waypointsCovered ? "covered" : "not covered"}
+                          </strong>
+                          {" • "}
+                          Tasks:{" "}
+                          <strong>
+                            {criteria.completedTasks}/{criteria.totalTasks} completed
+                          </strong>
+                        </div>
+                      ) : null}
+
                       {complianceTone ? (
                         <div className="mini">
                           Compliance:{" "}
@@ -539,6 +614,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           </strong>
                         </div>
                       ) : null}
+
                       <div className="mini">Click to select</div>
                     </Tooltip>
                   </Polyline>
@@ -835,7 +911,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 maxWidth: 320,
               }}
             >
-              <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 8 }}>Route completion</div>
+              <div style={{ fontWeight: 900, fontSize: 12, marginBottom: 8 }}>Route status</div>
               <div style={{ display: "grid", gap: 6 }}>
                 {legend.map((l) => (
                   <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -879,7 +955,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
       {activeRoutes.length > 0 && (
         <div className="mini" style={{ marginTop: 10 }}>
-          Route colors reflect completion derived from planned/completed stops. Compliance alerts use dashed emphasis.
+          Route colors reflect strict completion status (all waypoints covered AND all route tasks completed). Compliance alerts use dashed emphasis.
         </div>
       )}
     </div>
