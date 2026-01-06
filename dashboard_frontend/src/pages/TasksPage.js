@@ -24,19 +24,78 @@ function isExceptionStatus(status) {
   return status === Statuses.REJECTED || status === Statuses.REDO;
 }
 
+/**
+ * Builds a compact, read-only "Engineer comments" string for a task row.
+ * We treat comments as:
+ * - task.rejection_reason when currently rejected
+ * - task.redo_reason when currently redo
+ * - any statusHistory reason for on_hold/postponed/rejected/redo (if present)
+ */
+function buildEngineerCommentsForTask(scopedState, task) {
+  if (!task) return "";
+
+  const out = [];
+
+  // 1) Current exception reason fields on the task record.
+  if (task.status === Statuses.REJECTED) {
+    const rej = String(task.rejection_reason || "").trim();
+    if (rej) out.push(`Rejected: ${rej}`);
+  }
+  if (task.status === Statuses.REDO) {
+    const redo = String(task.redo_reason || "").trim();
+    if (redo) out.push(`Redo: ${redo}`);
+  }
+
+  // 2) Any historical reasons captured in statusHistory for this task.
+  // Keep it compact: grab up to the most recent 2 "reason-bearing" transitions.
+  const allowed = new Set([Statuses.ON_HOLD, Statuses.POSTPONED, Statuses.REJECTED, Statuses.REDO]);
+
+  const historyReasons = (scopedState?.statusHistory || [])
+    .filter((h) => h?.entityType === "task" && h.entityId === task.id)
+    .filter((h) => allowed.has(h.toStatus))
+    .map((h) => {
+      const reason = String(h.reason || "").trim();
+      if (!reason) return null;
+
+      const label = statusMeta[h.toStatus]?.label || h.toStatus;
+      return { ts: String(h.timestamp || ""), text: `${label}: ${reason}` };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.ts.localeCompare(a.ts))
+    .slice(0, 2);
+
+  historyReasons.forEach((r) => out.push(r.text));
+
+  // De-dupe repeated strings (e.g., task record reason matches history reason)
+  const seen = new Set();
+  const deduped = [];
+  out.forEach((s) => {
+    const key = String(s || "").trim();
+    if (!key) return;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(key);
+  });
+
+  return deduped.join(" · ");
+}
+
 // PUBLIC_INTERFACE
 export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
   /**
    * Tasks page:
-   * - Status is read-only (no update actions from this page).
-   * - Exceptions are no longer a separate tab; exception info is shown inline in Task Details.
-   * - Keeps domain store references intact by relying on scopedState data + status history rendering.
+   * - Status and comments are read-only (no update actions from this page).
+   * - No "Details" action/button in the task list.
+   * - Engineer comments column remains visible and functional.
    */
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
 
-  const selectedTask = useMemo(() => scopedState.tasks.find((t) => t.id === selectedTaskId) || null, [scopedState.tasks, selectedTaskId]);
+  const selectedTask = useMemo(
+    () => scopedState.tasks.find((t) => t.id === selectedTaskId) || null,
+    [scopedState.tasks, selectedTaskId]
+  );
 
   const rows = useMemo(() => {
     const qLower = q.trim().toLowerCase();
@@ -72,8 +131,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
     currentUser.role === Roles.FIELD_ENGINEER
       ? "Task statuses are shown read-only in this view."
       : currentUser.role === Roles.REGIONAL_MANAGER
-      ? "You can view tasks within your region. Statuses are read-only on this page."
-      : "You can view all tasks across regions. Statuses are read-only on this page.";
+        ? "You can view tasks within your region. Statuses are read-only on this page."
+        : "You can view all tasks across regions. Statuses are read-only on this page.";
 
   return (
     <div className="content">
@@ -128,16 +187,22 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                 <th>Route</th>
                 <th>Due</th>
                 <th>Status</th>
-                <th />
+                <th>Engineer comments</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((t) => {
                 const meta = statusMeta[t.status] || { label: t.status, tone: "neutral" };
                 const badgeClass = toneToBadgeClass(meta.tone);
+                const comments = buildEngineerCommentsForTask(scopedState, t);
 
                 return (
-                  <tr key={t.id}>
+                  <tr
+                    key={t.id}
+                    onClick={() => setSelectedTaskId(t.id)}
+                    style={{ cursor: "pointer" }}
+                    aria-label={`Select task ${t.id}`}
+                  >
                     <td>
                       <div style={{ fontWeight: 900 }}>{t.title}</div>
                       <div className="mini">{t.id}</div>
@@ -162,10 +227,14 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                         </div>
                       )}
                     </td>
-                    <td>
-                      <button className="btn btnGhost" onClick={() => setSelectedTaskId(t.id)}>
-                        Details
-                      </button>
+                    <td style={{ maxWidth: 380 }}>
+                      {comments ? (
+                        <div className="mini" style={{ lineHeight: 1.25 }}>
+                          {comments}
+                        </div>
+                      ) : (
+                        <span className="mini">—</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -179,6 +248,9 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
               )}
             </tbody>
           </table>
+          <div className="mini" style={{ marginTop: 8, color: "var(--ocean-muted)" }}>
+            Tip: click a task row to view details below.
+          </div>
         </div>
 
         {selectedTask && (
@@ -188,7 +260,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
               <div>
                 <div style={{ fontWeight: 900 }}>Task Details</div>
                 <div className="mini">
-                  {selectedTask.title} · {engineerName(scopedState, selectedTask.engineerId)} · {routeName(scopedState, selectedTask.routeId)}
+                  {selectedTask.title} · {engineerName(scopedState, selectedTask.engineerId)} ·{" "}
+                  {routeName(scopedState, selectedTask.routeId)}
                 </div>
               </div>
               <button className="btn btnGhost" onClick={() => setSelectedTaskId("")}>
@@ -217,7 +290,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                     </>
                   ) : (
                     <>
-                      <strong>Redo reason:</strong> {selectedTask.redo_reason || "—"} · <strong>Redo count:</strong> {selectedTask.redo_count || 0}
+                      <strong>Redo reason:</strong> {selectedTask.redo_reason || "—"} · <strong>Redo count:</strong>{" "}
+                      {selectedTask.redo_count || 0}
                     </>
                   )}
                 </div>
