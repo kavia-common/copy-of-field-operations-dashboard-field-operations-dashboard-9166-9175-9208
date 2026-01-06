@@ -492,6 +492,19 @@ export function computeRouteCompletionWithExceptionsSummary(
   };
 }
 
+//
+// Route Completion-only selector (separated from exceptions/compliance).
+//
+
+// PUBLIC_INTERFACE
+export function computeRouteCompletionOnlySummary(scopedState, { dateIso } = {}) {
+  /**
+   * Computes per-route completion metrics only (no rejected/redo or compliance).
+   * Used by the dedicated Route Completion dashboard card and drill-down.
+   */
+  return computeRouteCompletionSummary(scopedState, { dateIso });
+}
+
 // PUBLIC_INTERFACE
 export function computeDprSnapshot(state, user, { dateIso } = {}) {
   /** Small KPI subset for dashboard DPR card (planned vs completed, on-hold, postponed). */

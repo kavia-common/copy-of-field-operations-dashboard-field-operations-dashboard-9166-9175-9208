@@ -10,9 +10,9 @@ import {
 import { downloadCsv, toCsv } from "../utils/csv";
 import MapPanel from "../components/MapPanel";
 import AllocationPanel from "../components/AllocationPanel";
-import ExceptionsPanel from "../components/ExceptionsPanel";
 import Modal from "../components/Modal";
 import RouteCompletionCard from "../components/RouteCompletionCard";
+import ExceptionsCard from "../components/ExceptionsCard";
 import { getLastRefreshMeta, runDummyRefreshOnce } from "../state/dummyRefresh";
 
 function pct(n) {
@@ -37,7 +37,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
   /** Dashboard page showing map + key operational metric cards with drill-down modals. */
   const navigate = useNavigate();
   const [selectedRouteId, setSelectedRouteId] = useState("");
-  const [activeModal, setActiveModal] = useState(""); // "allocation" | "exceptions" | "compliance" | ""
+  const [activeModal, setActiveModal] = useState(""); // "allocation" | "compliance" | ""
 
   const todayIso = useMemo(() => new Date().toISOString(), []);
 
@@ -154,9 +154,14 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
       {/* Bottom: metric cards */}
       <div className="dashboardMetricsGrid" data-testid="dashboard-metrics">
-        {/* 1) Route Completion (merged with exceptions + drill-down) */}
-        <section aria-label="Route completion and exceptions summary" data-testid="metric-route-completion">
-          <RouteCompletionCard scopedState={scopedState} complianceSnapshot={complianceSnapshot} dateIso={todayIso} />
+        {/* 1) Route Completion (completion-only + drill-down) */}
+        <section aria-label="Route completion summary" data-testid="metric-route-completion">
+          <RouteCompletionCard scopedState={scopedState} dateIso={todayIso} />
+        </section>
+
+        {/* 2) Exceptions (rejected/redo only + drill-down) */}
+        <section aria-label="Exceptions summary" data-testid="metric-exceptions">
+          <ExceptionsCard scopedState={scopedState} dateIso={todayIso} onOpenTasks={() => navigate("/tasks")} />
         </section>
 
         {/* 2) Engineer Allocation */}
@@ -432,28 +437,6 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         </div>
       </Modal>
 
-      {/* Keep ExceptionsPanel for Tasks page; on Dashboard we still allow deep navigation via Tasks if needed. */}
-      <Modal
-        open={activeModal === "exceptions"}
-        title="Exceptions"
-        description="Active rejected/redo tasks in your scope."
-        onClose={() => setActiveModal("")}
-        maxWidth={1250}
-        footer={
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button className="btn btnGhost" onClick={() => setActiveModal("")}>
-              Done
-            </button>
-            <button className="btn btnPrimary" onClick={() => navigate("/tasks")}>
-              Go to Tasks
-            </button>
-          </div>
-        }
-      >
-        <div style={{ marginTop: 12 }}>
-          <ExceptionsPanel scopedState={scopedState} onSelectTaskId={() => navigate("/tasks")} />
-        </div>
-      </Modal>
     </div>
   );
 }

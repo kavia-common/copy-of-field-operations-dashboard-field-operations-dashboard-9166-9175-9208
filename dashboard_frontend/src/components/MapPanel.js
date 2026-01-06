@@ -183,7 +183,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       { label: "Good (≥ 90% completion)", color: "#059669" },
       { label: "Watch (60–89% completion)", color: "#F59E0B" },
       { label: "At Risk (< 60% completion)", color: "#DC2626" },
-      { label: "Non-compliance alerts (dashed)", color: "#111827" },
+      { label: "Compliance alerts (dashed)", color: "#111827" },
     ];
   }, []);
 

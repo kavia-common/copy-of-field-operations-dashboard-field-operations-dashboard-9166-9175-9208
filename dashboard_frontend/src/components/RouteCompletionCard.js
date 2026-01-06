@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import Modal from "./Modal";
-import { computeRouteCompletionWithExceptionsSummary } from "../state/domainStore";
+import { computeRouteCompletionOnlySummary } from "../state/domainStore";
 
 function pct(n) {
   return `${Math.round(Number(n || 0))}%`;
@@ -13,13 +13,6 @@ function toneToBadgeClass(tone) {
   return "badge";
 }
 
-function severityBadgeClass(sev) {
-  if (sev === "high") return "badge badgeError";
-  if (sev === "medium") return "badge badgeWarn";
-  if (sev === "low") return "badge";
-  return "badge";
-}
-
 function completionTone(completionPercent) {
   const p = Number(completionPercent || 0);
   if (p >= 90) return "success";
@@ -27,33 +20,26 @@ function completionTone(completionPercent) {
   return "error";
 }
 
-function exceptionBadgeTone({ exceptionsTotal, nonComplianceCount }) {
-  const total = Number(exceptionsTotal || 0) + Number(nonComplianceCount || 0);
-  if (total <= 0) return "success";
-  // Keep simple: any exception -> warn; any compliance -> escalate based on severity at row-level.
-  return "warn";
-}
-
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
 // PUBLIC_INTERFACE
-export default function RouteCompletionCard({ scopedState, complianceSnapshot, dateIso }) {
+export default function RouteCompletionCard({ scopedState, dateIso }) {
   /**
-   * Combined dashboard card: Route completion + Exceptions (Rejected/Redo + Non-compliance).
-   * Provides a unified drill-down modal/table with per-route details, filtering, and sorting.
+   * Route Completion dashboard card (completion-only).
+   * Drill-down shows per-route completion metrics (planned/completed/remaining/%),
+   * without mixing in rejected/redo exceptions or compliance flags.
    */
   const [open, setOpen] = useState(false);
 
   const summary = useMemo(() => {
-    return computeRouteCompletionWithExceptionsSummary(scopedState, { dateIso, complianceSnapshot });
-  }, [scopedState, dateIso, complianceSnapshot]);
+    return computeRouteCompletionOnlySummary(scopedState, { dateIso });
+  }, [scopedState, dateIso]);
 
   const [filterRouteId, setFilterRouteId] = useState("");
   const [filterRegionId, setFilterRegionId] = useState("");
-  const [filterStatus, setFilterStatus] = useState(""); // all | exceptions | non_compliance | clean
-  const [sortKey, setSortKey] = useState("exceptions"); // exceptions | completion | route | region
+  const [sortKey, setSortKey] = useState("remaining"); // remaining | completion | route | region
   const [sortDir, setSortDir] = useState("desc"); // asc | desc
 
   const routeOptions = useMemo(() => {
@@ -75,14 +61,6 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
       .filter((r) => {
         if (filterRouteId && r.routeId !== filterRouteId) return false;
         if (filterRegionId && r.regionId !== filterRegionId) return false;
-
-        const hasExceptions = (r.exceptions?.total || 0) > 0;
-        const hasCompliance = (r.compliance?.nonComplianceCount || 0) > 0;
-
-        if (filterStatus === "exceptions" && !hasExceptions) return false;
-        if (filterStatus === "non_compliance" && !hasCompliance) return false;
-        if (filterStatus === "clean" && (hasExceptions || hasCompliance)) return false;
-
         return true;
       })
       .slice()
@@ -91,17 +69,12 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
         if (sortKey === "route") return dir * String(a.routeName).localeCompare(String(b.routeName));
         if (sortKey === "region") return dir * String(a.regionId || "").localeCompare(String(b.regionId || ""));
         if (sortKey === "completion") return dir * (Number(a.completionPercent || 0) - Number(b.completionPercent || 0));
-        // exceptions
-        const ax = (a.exceptions?.total || 0) + (a.compliance?.nonComplianceCount || 0);
-        const bx = (b.exceptions?.total || 0) + (b.compliance?.nonComplianceCount || 0);
-        return dir * (ax - bx);
+        // remaining
+        return dir * (Number(a.remaining || 0) - Number(b.remaining || 0));
       });
-  }, [summary.perRoute, filterRouteId, filterRegionId, filterStatus, sortKey, sortDir]);
+  }, [summary.perRoute, filterRouteId, filterRegionId, sortKey, sortDir]);
 
-  const totalsBadgeTone = exceptionBadgeTone({
-    exceptionsTotal: summary.totals?.exceptions?.total || 0,
-    nonComplianceCount: summary.totals?.nonCompliance || 0,
-  });
+  const overallTone = completionTone(summary.overallCompletionPercent);
 
   return (
     <>
@@ -109,10 +82,10 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
         <div className="cardHeader">
           <div>
             <h2>Route Completion</h2>
-            <p>Completion + exceptions (Rejected/Redo + non-compliance) for your current scope</p>
+            <p>Completion progress per route (planned vs completed stops)</p>
           </div>
 
-          <span className="badge">
+          <span className={toneToBadgeClass(overallTone)}>
             Overall: <strong>{pct(summary.overallCompletionPercent)}</strong>
           </span>
         </div>
@@ -127,40 +100,16 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
           </div>
 
           <div className="kpi">
-            <div className="kpiLabel">Exceptions (today)</div>
-            <div className="kpiValue">{summary.totals?.exceptions?.total || 0}</div>
-            <div className="kpiSub">
-              Rejected {summary.totals?.exceptions?.rejected || 0} · Redo {summary.totals?.exceptions?.redo || 0}
-            </div>
+            <div className="kpiLabel">Completion</div>
+            <div className="kpiValue">{pct(summary.overallCompletionPercent)}</div>
+            <div className="kpiSub">Across all visible routes</div>
           </div>
 
           <div className="kpi">
-            <div className="kpiLabel">Non-compliance (today)</div>
-            <div className="kpiValue" style={{ color: (summary.totals?.nonCompliance || 0) > 0 ? "var(--ocean-error)" : undefined }}>
-              {summary.totals?.nonCompliance || 0}
-            </div>
-            <div className="kpiSub">Compliance snapshot flags</div>
+            <div className="kpiLabel">Routes in scope</div>
+            <div className="kpiValue">{(summary.perRoute || []).length}</div>
+            <div className="kpiSub">Role/region filtered</div>
           </div>
-        </div>
-
-        <hr className="hr" />
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <span className={toneToBadgeClass(totalsBadgeTone)}>
-            Exceptions + compliance: <strong>{(summary.totals?.exceptions?.total || 0) + (summary.totals?.nonCompliance || 0)}</strong>
-          </span>
-
-          <span className="badge badgeWarn">
-            Rejected/Redo: <strong>{summary.totals?.exceptions?.total || 0}</strong>
-          </span>
-
-          <span className="badge">
-            Non-compliance: <strong>{summary.totals?.nonCompliance || 0}</strong>
-          </span>
-
-          <span className="mini" style={{ marginLeft: "auto" }}>
-            Date: <strong>{summary.date}</strong>
-          </span>
         </div>
 
         <hr className="hr" />
@@ -171,15 +120,15 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
           </button>
 
           <div className="mini">
-            Badge key: <strong>green</strong> clean · <strong>amber</strong> has exceptions · <strong>red</strong> high compliance severity.
+            Route colors on map reflect completion (green/amber/red). Exceptions and compliance are tracked separately.
           </div>
         </div>
       </div>
 
       <Modal
         open={open}
-        title="Route Completion + Exceptions"
-        description="Per-route completion with rejected/redo counts and non-compliance details. Use filters and sorting to drill down."
+        title="Route Completion"
+        description="Per-route completion metrics (planned, completed, remaining). Use filters and sorting to drill down."
         onClose={() => setOpen(false)}
         maxWidth={1250}
         footer={
@@ -192,8 +141,7 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
               onClick={() => {
                 setFilterRouteId("");
                 setFilterRegionId("");
-                setFilterStatus("");
-                setSortKey("exceptions");
+                setSortKey("remaining");
                 setSortDir("desc");
               }}
             >
@@ -228,19 +176,9 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
           </label>
 
           <label className="input">
-            <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Status</span>
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-              <option value="">All</option>
-              <option value="exceptions">Has rejected/redo</option>
-              <option value="non_compliance">Has non-compliance</option>
-              <option value="clean">Clean</option>
-            </select>
-          </label>
-
-          <label className="input">
             <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Sort</span>
             <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
-              <option value="exceptions">Exceptions + compliance</option>
+              <option value="remaining">Remaining stops</option>
               <option value="completion">Completion %</option>
               <option value="route">Route</option>
               <option value="region">Region</option>
@@ -257,33 +195,20 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
         </div>
 
         <div className="tableWrap">
-          <table className="table" aria-label="Route completion and exceptions table" style={{ minWidth: 980 }}>
+          <table className="table" aria-label="Route completion table" style={{ minWidth: 980 }}>
             <thead>
               <tr>
                 <th>Route</th>
                 <th>Planned</th>
                 <th>Completed</th>
+                <th>Remaining</th>
                 <th>Completion</th>
-                <th>Rejected</th>
-                <th>Redo</th>
-                <th>Non-compliance</th>
-                <th>Latest reasons / flags</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.map((r) => {
-                const hasExceptions = (r.exceptions?.total || 0) > 0;
-                const hasCompliance = (r.compliance?.nonComplianceCount || 0) > 0;
-
                 const completionClass = toneToBadgeClass(completionTone(r.completionPercent));
-                const exceptionClass = toneToBadgeClass(exceptionBadgeTone({ exceptionsTotal: r.exceptions?.total, nonComplianceCount: r.compliance?.nonComplianceCount }));
-
-                const reasons = (r.exceptions?.topReasons || []).map((x) => `${x.reason} (${x.count})`).join(" · ");
-                const flags = (r.compliance?.latestMessages || [])
-                  .map((f) => `${String(f.rule).replaceAll("_", " ")}: ${f.message}`)
-                  .join(" · ");
-
                 return (
                   <tr key={r.routeId}>
                     <td style={{ fontWeight: 900 }}>
@@ -292,53 +217,18 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
                     </td>
                     <td>{r.planned}</td>
                     <td>{r.completed}</td>
+                    <td>{r.remaining}</td>
                     <td>
                       <span className={completionClass}>{pct(r.completionPercent)}</span>
                     </td>
-                    <td>{r.exceptions?.rejected || 0}</td>
-                    <td>{r.exceptions?.redo || 0}</td>
-                    <td>
-                      <span className={severityBadgeClass(r.compliance?.worstSeverity || "")}>
-                        {(r.compliance?.nonComplianceCount || 0) > 0 ? r.compliance.nonComplianceCount : 0}
-                      </span>
-                    </td>
-                    <td className="mini" style={{ maxWidth: 420 }}>
-                      {reasons || flags ? (
-                        <>
-                          {reasons ? (
-                            <div>
-                              <strong>Exceptions:</strong> {reasons}
-                            </div>
-                          ) : null}
-                          {flags ? (
-                            <div style={{ marginTop: reasons ? 6 : 0 }}>
-                              <strong>Compliance:</strong> {flags}
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="mini">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <span className={toneToBadgeClass(r.completionStatus?.tone)}>{r.completionStatus?.label || "—"}</span>
-                        {(hasExceptions || hasCompliance) && (
-                          <span className={exceptionClass}>
-                            {hasCompliance && r.compliance?.worstSeverity
-                              ? String(r.compliance.worstSeverity).toUpperCase()
-                              : "EXCEPTION"}
-                          </span>
-                        )}
-                      </div>
-                    </td>
+                    <td className="mini">{r.remaining <= 0 ? "Complete" : "In progress"}</td>
                   </tr>
                 );
               })}
 
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="mini">
+                  <td colSpan={6} className="mini">
                     No routes match your filters.
                   </td>
                 </tr>
@@ -350,7 +240,8 @@ export default function RouteCompletionCard({ scopedState, complianceSnapshot, d
         <hr className="hr" />
 
         <div className="mini">
-          Notes: rejected/redo counts are based on tasks <strong>due on {summary.date}</strong>. Non-compliance counts come from the compliance snapshot for the same day.
+          Notes: route completion is derived from planned/completed stops for the selected day. Task exceptions and compliance alerts
+          are tracked separately.
         </div>
       </Modal>
     </>
