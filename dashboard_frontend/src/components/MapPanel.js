@@ -211,20 +211,73 @@ function makeDotSvg({ fill, stroke = "rgba(17,24,39,0.30)" }) {
   </svg>`;
 }
 
+function makeEngineerPinSvg({ fill = "#0F766E" } = {}) {
+  /**
+   * Rounded pin for engineer marker (default variant).
+   * Sized ~30x40 with a clear tip; anchored at bottom center.
+   */
+  return makePinSvg({
+    fill,
+    stroke: "rgba(17,24,39,0.28)",
+    glyph: "E",
+    glyphColor: "#0F766E",
+  });
+}
+
+function makeEngineerAvatarSvg({ fill = "#0F766E" } = {}) {
+  /**
+   * Circle avatar variant for engineer marker.
+   * Useful when a non-pin marker is desired (e.g., clustered/overview modes).
+   */
+  return `
+  <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="engineer">
+    <defs>
+      <filter id="avatarShadow" x="-40%" y="-40%" width="180%" height="180%">
+        <feDropShadow dx="0" dy="2" stdDeviation="1.4" flood-color="rgba(17,24,39,0.25)" />
+      </filter>
+    </defs>
+    <g filter="url(#avatarShadow)">
+      <circle cx="16" cy="16" r="14" fill="${fill}" stroke="rgba(17,24,39,0.28)" stroke-width="1.4"/>
+      <circle cx="16" cy="13" r="5.0" fill="rgba(255,255,255,0.92)"/>
+      <path d="M8.6 26.2c1.6-4.2 6.0-6.4 7.4-6.4s5.8 2.2 7.4 6.4"
+        fill="rgba(255,255,255,0.92)"/>
+    </g>
+  </svg>`;
+}
+
 /**
- * Engineer marker should use the uploaded image.
- * Placed in /public/assets so it can be referenced by URL at runtime.
+ * Built-in engineer marker icon (no external assets).
+ * Two variants are supported:
+ * - "pin" (default): rounded pin with a tip aligned to the GPS point.
+ * - "avatar": circle avatar anchored at its center.
  */
-const engineerImageIcon = L.icon({
-  iconUrl: "/assets/engineer-marker.png",
-  iconRetinaUrl: "/assets/engineer-marker.png",
-  // New uploaded marker is a pin-style icon. Use a slightly larger size for clarity,
-  // and anchor at the bottom center (the tip of the pin) so it points to the exact location.
-  iconSize: [48, 48],
-  iconAnchor: [24, 48],
-  tooltipAnchor: [0, -40],
-  // Shadow intentionally omitted (uploaded image already has a clean silhouette).
-});
+function makeEngineerIcon({ variant = "pin", fill = "#0F766E" } = {}) {
+  const v = String(variant || "pin").toLowerCase();
+  if (v === "avatar") {
+    // Circle marker: anchor at center.
+    return L.divIcon({
+      className: "oceanMarker oceanMarkerEngineer oceanMarkerEngineer_avatar",
+      html: makeEngineerAvatarSvg({ fill }),
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+      tooltipAnchor: [0, -18],
+    });
+  }
+
+  // Default: rounded pin. Use ~30x40 and anchor at tip.
+  return L.divIcon({
+    className: "oceanMarker oceanMarkerEngineer oceanMarkerEngineer_pin",
+    html: makeEngineerPinSvg({ fill }),
+    iconSize: [30, 40],
+    iconAnchor: [15, 39],
+    tooltipAnchor: [0, -34],
+  });
+}
+
+// Default engineer icon (requested default: rounded pin).
+const engineerDefaultIcon = makeEngineerIcon({ variant: "pin", fill: "#0F766E" });
+// Alternate variant kept in code for easy switching/testing.
+const engineerAvatarIcon = makeEngineerIcon({ variant: "avatar", fill: "#0F766E" });
 
 const destinationDivIcon = L.divIcon({
   className: "oceanMarker oceanMarkerDestination",
@@ -1726,7 +1779,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   <Marker
                     key={`eng_${engineerId}`}
                     position={[loc.lat, loc.lng]}
-                    icon={engineerImageIcon}
+                    icon={engineerDefaultIcon}
                     opacity={opacity}
                     interactive
                   >
