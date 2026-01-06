@@ -200,6 +200,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                 <th>Route</th>
                 <th>Due</th>
                 <th>Next Due Date</th>
+                <th>Rescheduled Date</th>
                 <th>Status</th>
                 <th>Engineer comments</th>
               </tr>
@@ -226,6 +227,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                     <td>{routeName(scopedState, t.routeId)}</td>
                     <td>{t.dueDate ? formatDateShortLocal(t.dueDate) : "—"}</td>
                     <td>{t.nextDueDate ? formatDateShortLocal(t.nextDueDate) : "—"}</td>
+                    <td>{t.rescheduledDate ? formatDateShortLocal(t.rescheduledDate) : "—"}</td>
                     <td>
                       <span className={badgeClass}>{meta.label}</span>
                       {isExceptionStatus(t.status) && (
@@ -256,7 +258,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="mini">
+                  <td colSpan={9} className="mini">
                     No tasks match your filters.
                   </td>
                 </tr>

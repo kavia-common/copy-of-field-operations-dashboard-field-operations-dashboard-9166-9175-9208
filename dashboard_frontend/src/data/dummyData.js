@@ -303,6 +303,8 @@ export const tasks = [
     dueDate: "2026-01-10",
     // Scheduled/next occurrence (read-only on Tasks page)
     nextDueDate: "2026-01-17",
+    // Read-only reschedule date (forward-compatible; may be empty)
+    rescheduledDate: "2026-01-12",
     status: Statuses.IN_PROGRESS,
     rejection_reason: "",
     redo_reason: "",
@@ -424,6 +426,7 @@ export const tasks = [
     routeId: "route_c_1",
     dueDate: "2026-01-07",
     nextDueDate: "2026-01-14",
+    rescheduledDate: "2026-01-09",
     status: Statuses.POSTPONED,
     rejection_reason: "",
     redo_reason: "",
@@ -478,6 +481,7 @@ export const tasks = [
     routeId: "route_w_1",
     dueDate: "2026-01-12",
     nextDueDate: "2026-01-19",
+    rescheduledDate: "2026-01-13",
     status: Statuses.POSTPONED,
     rejection_reason: "",
     redo_reason: "",
