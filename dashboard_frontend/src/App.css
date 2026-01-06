@@ -513,6 +513,60 @@
   position: relative;
 }
 
+/* Ocean Professional map controls (custom + plugin-friendly) */
+.oceanMapControlGroup {
+  display: grid;
+  gap: 10px;
+  margin-right: 10px;
+  margin-top: 10px;
+}
+
+.oceanMapControl {
+  display: grid;
+}
+
+.oceanMapControlBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--ocean-border);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-sm);
+  color: var(--ocean-text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.oceanMapControlBtn:hover {
+  background: rgba(30, 58, 138, 0.06);
+  border-color: rgba(30, 58, 138, 0.18);
+}
+
+.oceanMapControlBtn:active {
+  transform: translateY(0.5px);
+}
+
+.oceanMapControlIcon {
+  font-weight: 950;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ocean-primary);
+}
+
+/* Make controls a touch smaller on very small screens to avoid covering the map */
+@media (max-width: 560px) {
+  .oceanMapControlBtn {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+  }
+  .oceanMapControlIcon {
+    font-size: 15px;
+  }
+}
+
 .mapFallback {
   position: absolute;
   inset: 0;

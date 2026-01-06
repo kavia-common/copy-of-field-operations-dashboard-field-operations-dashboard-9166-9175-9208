@@ -2,6 +2,10 @@ import React, { useMemo, useRef } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import { useMap } from "react-leaflet";
+import { createPortal } from "react-dom";
+
+// Optional plugin: fullscreen control (adds L.control.fullscreen)
+import "leaflet.fullscreen";
 
 /**
  * Leaflet (React-Leaflet) map panel: renders markers for engineers and polylines for routes.
@@ -10,6 +14,11 @@ import { useMap } from "react-leaflet";
  * - Shows each engineer's assigned route as a per-engineer polyline overlay (slightly thinner than the base route).
  * - Shows route waypoints (checkpoints) as small circle markers.
  * - Engineer markers update as the domain store refreshes dummy locations (every 30s on Dashboard).
+ * - Adds common map controls:
+ *    - Zoom controls (ensured visible)
+ *    - Fit-to-bounds control
+ *    - Recenter control (returns to default fit view of all routes/markers)
+ *    - Optional fullscreen toggle (via leaflet.fullscreen)
  *
  * Notes:
  * - Uses OpenStreetMap tiles (no API keys required).
@@ -151,6 +160,155 @@ function FocusDeviationOnMap({ focusDeviation, markerRefs, onSelectRouteId }) {
   }, [focusDeviation, markerRefs, map, onSelectRouteId]);
 
   return null;
+}
+
+function safeFitToBounds(map, bounds) {
+  if (!map || !bounds) return;
+  try {
+    map.fitBounds(bounds, { padding: [40, 40] });
+  } catch {
+    // no-op
+  }
+}
+
+function createOceanControlButton({ title, label, icon, onClick, extraClassName = "" }) {
+  const container = L.DomUtil.create("div", `oceanMapControl ${extraClassName}`.trim());
+  const btn = L.DomUtil.create("button", "oceanMapControlBtn", container);
+  btn.type = "button";
+  btn.title = title;
+  btn.setAttribute("aria-label", label);
+  btn.innerHTML = `<span class="oceanMapControlIcon" aria-hidden="true">${icon}</span>`;
+
+  // Prevent map interactions from triggering when clicking the control.
+  L.DomEvent.disableClickPropagation(container);
+  L.DomEvent.disableScrollPropagation(container);
+  L.DomEvent.on(btn, "click", (e) => {
+    L.DomEvent.stopPropagation(e);
+    L.DomEvent.preventDefault(e);
+    onClick?.();
+  });
+
+  return container;
+}
+
+// PUBLIC_INTERFACE
+function MapControls({ bounds }) {
+  /**
+   * Adds UI controls to the map:
+   * - Fit-to-bounds
+   * - Recenter (same as fit-to-bounds default view)
+   * - Optional fullscreen toggle via leaflet.fullscreen
+   *
+   * IMPORTANT: Does not alter refresh behavior; it only calls map methods when user clicks controls.
+   */
+  const map = useMap();
+
+  React.useEffect(() => {
+    if (!map) return;
+
+    const ctlGroup = L.control({ position: "topright" });
+    ctlGroup.onAdd = () => {
+      const wrap = L.DomUtil.create("div", "oceanMapControlGroup");
+      // Button 1: Fit to bounds
+      wrap.appendChild(
+        createOceanControlButton({
+          title: "Fit map to all routes & engineers",
+          label: "Fit to bounds",
+          icon: "⤢",
+          onClick: () => safeFitToBounds(map, bounds),
+        }),
+      );
+      // Button 2: Recenter (same behavior but clearer label/icon)
+      wrap.appendChild(
+        createOceanControlButton({
+          title: "Recenter map to default view",
+          label: "Recenter",
+          icon: "⌖",
+          onClick: () => safeFitToBounds(map, bounds),
+        }),
+      );
+      return wrap;
+    };
+
+    ctlGroup.addTo(map);
+
+    // Optional fullscreen control (if plugin loaded successfully)
+    // leaflet.fullscreen registers map methods and L.control.fullscreen().
+    let fullscreenControl = null;
+    try {
+      if (L.control?.fullscreen) {
+        fullscreenControl = L.control.fullscreen({
+          position: "topright",
+          title: "Fullscreen",
+          titleCancel: "Exit fullscreen",
+        });
+        fullscreenControl.addTo(map);
+      }
+    } catch {
+      // If plugin isn't available for some reason, skip without breaking the map.
+    }
+
+    return () => {
+      try {
+        ctlGroup.remove();
+      } catch {
+        // no-op
+      }
+      try {
+        if (fullscreenControl) fullscreenControl.remove();
+      } catch {
+        // no-op
+      }
+    };
+  }, [map, bounds]);
+
+  return null;
+}
+
+// PUBLIC_INTERFACE
+function LeafletControlTheming() {
+  /**
+   * Inject small theme overrides for Leaflet's built-in controls (zoom buttons, etc.).
+   * This keeps styling aligned with Ocean Professional without relying on external CSS plugins.
+   */
+  return createPortal(
+    <style>{`
+      /* Ocean theme for Leaflet built-in controls */
+      .mapBox .leaflet-control-zoom a,
+      .mapBox .leaflet-control-layers-toggle {
+        background: rgba(255,255,255,0.92);
+        color: #111827;
+        border: 1px solid var(--ocean-border);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .mapBox .leaflet-control-zoom a:hover {
+        background: rgba(30,58,138,0.06);
+      }
+
+      .mapBox .leaflet-control-zoom a.leaflet-disabled {
+        opacity: 0.6;
+      }
+
+      .mapBox .leaflet-bar {
+        border: 1px solid var(--ocean-border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      /* Fullscreen plugin button (keeps consistent with Ocean theme) */
+      .mapBox .leaflet-control-fullscreen a {
+        background: rgba(255,255,255,0.92);
+        border: 1px solid var(--ocean-border);
+        box-shadow: var(--shadow-sm);
+        border-radius: 10px;
+      }
+      .mapBox .leaflet-control-fullscreen a:hover {
+        background: rgba(30,58,138,0.06);
+      }
+    `}</style>,
+    document.head,
+  );
 }
 
 export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot, focusDeviation }) {
@@ -299,13 +457,27 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
           </div>
         ) : (
           <>
-            <MapContainer center={initialCenter} zoom={12} scrollWheelZoom style={{ height: "100%", width: "100%" }} preferCanvas>
+            <MapContainer
+              center={initialCenter}
+              zoom={12}
+              scrollWheelZoom
+              style={{ height: "100%", width: "100%" }}
+              preferCanvas
+              zoomControl
+            >
+              <LeafletControlTheming />
+
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
+              {/* Keep existing auto-fit behavior; no change to refresh behavior. */}
               {bounds && <FitToVisible bounds={bounds} />}
+
+              {/* New explicit user-facing controls (recenter/fit/fullscreen) */}
+              {bounds && <MapControls bounds={bounds} />}
+
               <FocusDeviationOnMap focusDeviation={focusDeviation} markerRefs={markerRefs} onSelectRouteId={onSelectRouteId} />
 
               {/* Base route polylines (completion + compliance coloring preserved) */}
