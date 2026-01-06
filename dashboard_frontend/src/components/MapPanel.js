@@ -846,8 +846,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   const [showDeviations, setShowDeviations] = React.useState(true);
   const [showDeviationCorridor, setShowDeviationCorridor] = React.useState(true);
 
-  // Deviation settings (frontend-only): per spec default 50m.
-  const allowedDeviationMeters = 50;
+  // Deviation settings (TrackoBit-like): default 50m, but each route may override via `allowedDeviationMeters`.
+  const DEFAULT_ALLOWED_DEVIATION_METERS = 50;
 
   // OSRM snap cache + inflight tracking.
   const osrmCacheRef = useRef(null);
@@ -1077,6 +1077,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       const currentLatLng = [loc.lat, loc.lng];
       const trail = buildSyntheticTrailForEngineer({ engineerId, currentLatLng, routeLatLngs: plannedLatLngs });
 
+      const allowedDeviationMeters = Number(route?.allowedDeviationMeters ?? DEFAULT_ALLOWED_DEVIATION_METERS) || DEFAULT_ALLOWED_DEVIATION_METERS;
+
       // Deviation metrics for current point.
       const pointDeviation = computeDeviationForPoint({
         routeLine: plannedLine,
@@ -1109,6 +1111,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         plannedLatLngs,
         trailLatLngs: trail,
         plannedLine,
+        allowedDeviationMeters,
         isDeviatedNow,
         deviationMeters: pointDeviation?.deviationMeters ?? null,
         deviationSince,
@@ -1405,7 +1408,15 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
             </div>
 
             <div className="mini" style={{ marginTop: 8, color: "var(--ocean-muted)" }}>
-              Deviation threshold: <strong>{allowedDeviationMeters}m</strong> (Turf.js distance-to-route)
+              {(() => {
+                const selectedRoute = selectedRouteId ? (allRoutes || []).find((r) => r.id === selectedRouteId) : null;
+                const threshold = Number(selectedRoute?.allowedDeviationMeters ?? DEFAULT_ALLOWED_DEVIATION_METERS) || DEFAULT_ALLOWED_DEVIATION_METERS;
+                return (
+                  <>
+                    Deviation threshold: <strong>{threshold}m</strong> (distance from planned route)
+                  </>
+                );
+              })()}
             </div>
           </>
         )}
@@ -2051,7 +2062,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           ) : null}
 
                           <div className="mini" style={{ marginTop: 12, color: "var(--ocean-muted)" }}>
-                            Live deviation detection also runs on the frontend (Turf.js) using a {allowedDeviationMeters}m threshold.
+                            Live deviation detection also runs on the frontend (distance-to-route) using a{" "}
+                            {Number((routesInRegion || []).find((x) => x.id === routePopupDetails.routeId)?.allowedDeviationMeters ?? DEFAULT_ALLOWED_DEVIATION_METERS) ||
+                              DEFAULT_ALLOWED_DEVIATION_METERS}
+                            m threshold.
                           </div>
                         </>
                       ) : (

@@ -23,7 +23,8 @@ const DEVIATION_SEEN_STORAGE_KEY = "fod_compliance_deviation_seen_v1";
  */
 export const DEFAULT_COMPLIANCE_CONFIG = Object.freeze({
   // Max allowed distance from planned route polyline before flagging "off-route".
-  offRouteThresholdMeters: 250,
+  // TrackoBit-like default corridor: 50m (can be tuned via config if needed).
+  offRouteThresholdMeters: 50,
 
   // Consider a waypoint/checkpoint "visited" if any breadcrumb is within this radius.
   waypointVisitRadiusMeters: 120,

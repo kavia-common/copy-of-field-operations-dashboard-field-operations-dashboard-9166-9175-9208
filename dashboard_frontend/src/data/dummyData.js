@@ -124,6 +124,8 @@ export const routes = [
     missed_stops: 2,
     on_hold_stops: 1,
     postponed_stops: 1,
+    // TrackoBit-like rule: allowed deviation corridor around planned route
+    allowedDeviationMeters: 50,
     // Roughly follows a Manhattan spine with realistic intersections/avenues
     polyline: [
       { lat: 40.758, lng: -73.9855 }, // Times Sq
@@ -147,6 +149,7 @@ export const routes = [
     missed_stops: 3,
     on_hold_stops: 2,
     postponed_stops: 2,
+    allowedDeviationMeters: 50,
     polyline: [
       { lat: 40.744, lng: -74.0324 }, // Jersey City (Newport)
       { lat: 40.7393, lng: -74.0296 }, // Exchange Place corridor
@@ -166,6 +169,7 @@ export const routes = [
     missed_stops: 1,
     on_hold_stops: 1,
     postponed_stops: 1,
+    allowedDeviationMeters: 50,
     polyline: [
       { lat: 33.7552, lng: -84.3906 }, // Downtown
       { lat: 33.7644, lng: -84.3874 }, // near North Ave / Connector
@@ -183,6 +187,7 @@ export const routes = [
     missed_stops: 5,
     on_hold_stops: 3,
     postponed_stops: 2,
+    allowedDeviationMeters: 50,
     polyline: [
       { lat: 33.7658, lng: -84.3722 }, // near Krog St / Inman Park
       { lat: 33.7712, lng: -84.3654 }, // Inman Park
@@ -202,6 +207,7 @@ export const routes = [
     missed_stops: 2,
     on_hold_stops: 2,
     postponed_stops: 1,
+    allowedDeviationMeters: 50,
     polyline: [
       { lat: 32.7767, lng: -96.797 }, // Downtown Dallas
       { lat: 32.7854, lng: -96.8003 }, // Arts District
@@ -219,6 +225,7 @@ export const routes = [
     missed_stops: 5,
     on_hold_stops: 3,
     postponed_stops: 3,
+    allowedDeviationMeters: 50,
     polyline: [
       { lat: 32.7551, lng: -97.3308 }, // Downtown Fort Worth
       { lat: 32.7813, lng: -97.297 }, // near Arlington Heights direction
@@ -238,6 +245,7 @@ export const routes = [
     missed_stops: 2,
     on_hold_stops: 2,
     postponed_stops: 1,
+    allowedDeviationMeters: 50,
     polyline: [
       { lat: 34.0526, lng: -118.2467 }, // DTLA
       { lat: 34.0485, lng: -118.2585 }, // near Pico-Union
@@ -256,6 +264,7 @@ export const routes = [
     missed_stops: 4,
     on_hold_stops: 2,
     postponed_stops: 2,
+    allowedDeviationMeters: 50,
     polyline: [
       { lat: 34.147, lng: -118.144 }, // Pasadena
       { lat: 34.1437, lng: -118.152 }, // Old Town Pasadena vicinity
