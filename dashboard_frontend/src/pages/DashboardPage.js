@@ -257,7 +257,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         </section>
 
         {/* 4) DPR Snapshot */}
-        <section className="card" aria-label="Daily progress report snapshot" data-testid="metric-dpr">
+        <section className="card kpiCardFixed" aria-label="Daily progress report snapshot" data-testid="metric-dpr">
           <div className="cardHeader">
             <div>
               <h2>DPR Snapshot</h2>
@@ -266,38 +266,42 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
             <span className="badge">{dprSnapshot.date}</span>
           </div>
 
-          <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-            <div className="kpi">
-              <div className="kpiLabel">Planned tasks</div>
-              <div className="kpiValue">{dprSnapshot.planned}</div>
-              <div className="kpiSub">Due today</div>
-            </div>
-            <div className="kpi">
-              <div className="kpiLabel">Completed</div>
-              <div className="kpiValue">{dprSnapshot.completed}</div>
-              <div className="kpiSub">{pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion</div>
-            </div>
-            <div className="kpi">
-              <div className="kpiLabel">On hold</div>
-              <div className="kpiValue">{dprSnapshot.onHold}</div>
-              <div className="kpiSub">Needs attention</div>
-            </div>
-            <div className="kpi">
-              <div className="kpiLabel">Postponed</div>
-              <div className="kpiValue">{dprSnapshot.postponed}</div>
-              <div className="kpiSub">Reschedule required</div>
+          <div className="kpiCardBody">
+            <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+              <div className="kpi">
+                <div className="kpiLabel">Planned tasks</div>
+                <div className="kpiValue">{dprSnapshot.planned}</div>
+                <div className="kpiSub">Due today</div>
+              </div>
+              <div className="kpi">
+                <div className="kpiLabel">Completed</div>
+                <div className="kpiValue">{dprSnapshot.completed}</div>
+                <div className="kpiSub">
+                  {pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion
+                </div>
+              </div>
+              <div className="kpi">
+                <div className="kpiLabel">On hold</div>
+                <div className="kpiValue">{dprSnapshot.onHold}</div>
+                <div className="kpiSub">Needs attention</div>
+              </div>
+              <div className="kpi">
+                <div className="kpiLabel">Postponed</div>
+                <div className="kpiValue">{dprSnapshot.postponed}</div>
+                <div className="kpiSub">Reschedule required</div>
+              </div>
             </div>
           </div>
 
-          <hr className="hr" />
-
-          <div className="splitRow">
-            <button className="btn btnPrimary" style={miniButtonStyle()} onClick={exportDprSnapshotCsv}>
-              Export DPR (CSV)
-            </button>
-            <Link className="btn btnGhost" style={miniButtonStyle()} to="/dpr">
-              Open full DPR
-            </Link>
+          <div className="kpiCardFooter">
+            <div className="splitRow">
+              <button className="btn btnPrimary" style={miniButtonStyle()} onClick={exportDprSnapshotCsv}>
+                Export DPR (CSV)
+              </button>
+              <Link className="btn btnGhost" style={miniButtonStyle()} to="/dpr">
+                Open full DPR
+              </Link>
+            </div>
           </div>
         </section>
       </div>

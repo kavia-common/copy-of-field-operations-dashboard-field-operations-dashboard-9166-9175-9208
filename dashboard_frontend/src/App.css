@@ -256,45 +256,48 @@
   min-width: 0;
 }
 
-/* KPI cards on Dashboard: enforce consistent height and a stable internal layout */
+/* KPI cards on Dashboard: enforce consistent FIXED height and a stable internal layout */
 .kpiCardFixed {
   /*
-    Use DPR card height as the reference:
-    - DPR is content-driven (no fixed height).
-    - For the other KPI cards, we keep a consistent baseline height but allow growth if content needs it.
-    This prevents mismatch across breakpoints where DPR may become taller.
+    Static (fixed) height across breakpoints for all dashboard KPI cards.
+    Content must never overlap the reserved footer/action row.
   */
-  min-height: 260px; /* baseline uniform height across Route Completion / Tasks / Engineer Allocation */
-  height: auto;
+  height: 260px;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden; /* keep internal overflow contained inside card */
 }
 
 /*
   Reserve a dedicated footer/action area so the "Show details" button never overlaps
-  the KPI content, even with long helper text and at responsive breakpoints.
+  the KPI content. The body becomes the only flexible region.
 */
 .kpiCardBody {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden; /* prevent content from bleeding into the footer area */
+  overflow: hidden; /* prevents content from bleeding into the footer area */
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .kpiCardFooter {
-  margin-top: auto;
   flex: 0 0 auto;
+  margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--ocean-border);
   position: relative;
-  z-index: 1; /* ensure the footer/button stays above any internal backgrounds */
+  z-index: 1; /* ensure footer/button stays above any internal backgrounds */
+  background: var(--ocean-surface); /* avoids visual blending if body scroll/clips */
 }
 
+/* Keep footer height stable and avoid wrapping into multiple lines */
 .detailsLink {
   padding: 8px 10px;
   font-size: 12px;
   white-space: nowrap;
-  line-height: 1; /* tighter hitbox alignment in compact footer */
+  line-height: 1;
 }
 
 /* Ensure the action row always aligns cleanly and doesn't wrap into content */
@@ -303,6 +306,14 @@
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: nowrap;
+}
+
+/* Clamp helper lines inside KPI cards so fixed height never overflows */
+.kpiCardBody .mini {
+  display: -webkit-box;
+  -webkit-line-clamp: 3; /* enough for helper copy, but prevents footer overlap */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .cardHeader {
