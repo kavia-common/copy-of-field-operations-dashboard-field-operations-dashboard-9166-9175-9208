@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import { useMap } from "react-leaflet";
@@ -77,7 +77,41 @@ function FitToVisible({ bounds }) {
   return null;
 }
 
-export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot }) {
+// PUBLIC_INTERFACE
+function FocusDeviationOnMap({ focusDeviation, markerRefs, onSelectRouteId }) {
+  /**
+   * When a new deviation is detected, open a small popup (Leaflet Tooltip) on the affected marker,
+   * and also select the route so the route polyline is highlighted.
+   */
+  const map = useMap();
+
+  React.useEffect(() => {
+    if (!focusDeviation) return;
+
+    const engineerId = focusDeviation.engineerId;
+    const routeId = focusDeviation.routeId;
+
+    if (routeId) onSelectRouteId?.(routeId);
+
+    const marker = markerRefs.current?.get(engineerId);
+    if (marker) {
+      try {
+        // Bring the marker into view and open tooltip.
+        const ll = marker.getLatLng?.();
+        if (ll) map.flyTo(ll, Math.max(map.getZoom(), 13), { duration: 0.6 });
+        marker.openTooltip?.();
+      } catch {
+        // no-op: map interaction should never break rendering
+      }
+    }
+  }, [focusDeviation, markerRefs, map, onSelectRouteId]);
+
+  return null;
+}
+
+export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot, focusDeviation }) {
+  const markerRefs = useRef(new Map());
+
   const activeRoutes = useMemo(() => {
     if (!scopedState) return [];
     return scopedState.routes || [];
@@ -228,6 +262,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
               />
 
               {bounds && <FitToVisible bounds={bounds} />}
+              <FocusDeviationOnMap focusDeviation={focusDeviation} markerRefs={markerRefs} onSelectRouteId={onSelectRouteId} />
 
               {/* Base route polylines (completion + compliance coloring preserved) */}
               {activeRoutes.map((r) => {
@@ -353,6 +388,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     position={[loc.lat, loc.lng]}
                     icon={icon}
                     riseOnHover
+                    ref={(ref) => {
+                      if (!ref) return;
+                      markerRefs.current.set(loc.engineerId, ref);
+                    }}
                   >
                     <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
                       <div style={{ fontWeight: 900 }}>{name}</div>
@@ -366,6 +405,11 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       {sev ? (
                         <div className="mini">
                           Alerts: <strong style={{ textTransform: "uppercase" }}>{sev}</strong>
+                        </div>
+                      ) : null}
+                      {focusDeviation?.engineerId === loc.engineerId ? (
+                        <div className="mini" style={{ marginTop: 6, fontWeight: 800, color: "var(--ocean-error)" }}>
+                          New deviation: {String(focusDeviation.rule || "").replaceAll("_", " ")}
                         </div>
                       ) : null}
                     </Tooltip>

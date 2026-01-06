@@ -8,9 +8,14 @@ import { saveDomainState } from "./domainStore";
  * - Dashboard metric card + drill-down
  * - Map highlighting (route polyline + engineer marker)
  * - Exceptions / Tasks surfacing
+ *
+ * Additions:
+ * - A minimal “deviation event” emitter that can be used by UI to trigger popup/toast alerts.
+ * - Persisted “seen” metadata to avoid repeating popups across refresh/page reload.
  */
 
 const STORAGE_KEY = "fod_compliance_v1";
+const DEVIATION_SEEN_STORAGE_KEY = "fod_compliance_deviation_seen_v1";
 
 /**
  * Configurable thresholds for detection rules.
@@ -191,6 +196,42 @@ function loadStore() {
 
 function saveStore(store) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+}
+
+function loadDeviationSeenStore() {
+  try {
+    const raw = window.localStorage.getItem(DEVIATION_SEEN_STORAGE_KEY);
+    if (!raw) return { seen: {} };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { seen: {} };
+    if (!parsed.seen || typeof parsed.seen !== "object") return { seen: {} };
+    return parsed;
+  } catch {
+    return { seen: {} };
+  }
+}
+
+function saveDeviationSeenStore(store) {
+  window.localStorage.setItem(DEVIATION_SEEN_STORAGE_KEY, JSON.stringify(store));
+}
+
+function ruleLabel(rule) {
+  switch (rule) {
+    case ComplianceRule.OFF_ROUTE:
+      return "Off-route";
+    case ComplianceRule.MISSED_WAYPOINTS:
+      return "Missed checkpoints";
+    case ComplianceRule.OUT_OF_GEOFENCE:
+      return "Out of geo-fence";
+    case ComplianceRule.PROLONGED_IDLE:
+      return "Prolonged idle";
+    case ComplianceRule.START_WINDOW_BREACH:
+      return "Start window breach";
+    case ComplianceRule.END_WINDOW_BREACH:
+      return "End window breach";
+    default:
+      return String(rule || "").replaceAll("_", " ");
+  }
 }
 
 /**
@@ -683,4 +724,96 @@ export function ensureComplianceComputed(fullState, { dateIso = "", config = DEF
   const existing = loadComplianceSnapshot({ dateIso: day });
   if (existing) return existing;
   return computeAndPersistCompliance(fullState, { dateIso: day, config });
+}
+
+function deviationDedupeKey(flag) {
+  // A stable key (independent of random flag.id) used for short-window de-dupe.
+  // Intentionally coarse: same engineer+route+rule+severity within a window is considered “same alert”.
+  const eid = flag?.engineerId || "";
+  const rid = flag?.routeId || "";
+  const rule = flag?.rule || "";
+  const sev = flag?.severity || "";
+  return `${eid}|${rid}|${rule}|${sev}`;
+}
+
+// PUBLIC_INTERFACE
+export function detectNewDeviations(prevSnapshot, nextSnapshot, { persistSeen = true, minSeverity = "" } = {}) {
+  /**
+   * Compares snapshots and returns a list of newly appeared deviation “events”.
+   * Uses a persisted “seen” store to avoid repeated popups across refreshes.
+   *
+   * Returns: Array<{ id, dedupeKey, severity, title, message, engineerId, routeId, rule, occurredAtIso }>
+   */
+  const prevKeys = new Set((prevSnapshot?.flags || []).map((f) => deviationDedupeKey(f)));
+  const nextFlags = nextSnapshot?.flags || [];
+
+  const sevRank = { high: 3, medium: 2, low: 1, "": 0 };
+  const minRank = sevRank[minSeverity] || 0;
+
+  const store = loadDeviationSeenStore();
+  const seen = store.seen || {};
+  const occurredAtIso = nowIso();
+
+  const newEvents = [];
+
+  nextFlags.forEach((f) => {
+    const key = deviationDedupeKey(f);
+    if (!key) return;
+    if (prevKeys.has(key)) return; // not newly appeared in this refresh window
+    if ((sevRank[f.severity] || 0) < minRank) return;
+
+    // Don't re-emit if we've already shown this exact dedupeKey today.
+    // (We keep it day-scoped by prefixing with date)
+    const day = datePrefix(nextSnapshot?.date || nowIso());
+    const dayKey = `${day}|${key}`;
+    if (seen[dayKey]) return;
+
+    const event = {
+      id: f.id, // still useful for drill-down table row targeting
+      dedupeKey: key,
+      severity: f.severity,
+      title: `Route deviation: ${ruleLabel(f.rule)}`,
+      message: f.message,
+      engineerId: f.engineerId,
+      routeId: f.routeId,
+      rule: f.rule,
+      occurredAtIso,
+    };
+    newEvents.push(event);
+
+    if (persistSeen) {
+      seen[dayKey] = Date.now();
+    }
+  });
+
+  if (persistSeen) saveDeviationSeenStore({ seen });
+
+  return newEvents;
+}
+
+// PUBLIC_INTERFACE
+export function selectNonComplianceTrendToday(complianceSnapshot, { now = new Date() } = {}) {
+  /**
+   * Produces a simple “trend today” indicator based on flag timestamps:
+   * since flags are computed and not truly real-time, we approximate by comparing the
+   * snapshot's computedAt (or current time) against a “last hour” bucket using occurredAtIso.
+   *
+   * Returns: { lastHour: number, total: number }
+   */
+  const flags = complianceSnapshot?.flags || [];
+  const total = flags.length;
+
+  // Flags have no native time field; we use computedAt day anchors as approximation.
+  // This is deliberately lightweight for dummy data.
+  const nowMs = now.getTime();
+  const oneHourAgo = nowMs - 60 * 60_000;
+
+  const lastHour = flags.filter((f) => {
+    const ts = f?.meta?.fromTimestamp || f?.meta?.actualStart || f?.meta?.actualEnd || "";
+    const ms = ts ? new Date(ts).getTime() : NaN;
+    if (!Number.isFinite(ms)) return false;
+    return ms >= oneHourAgo && ms <= nowMs;
+  }).length;
+
+  return { lastHour, total };
 }
