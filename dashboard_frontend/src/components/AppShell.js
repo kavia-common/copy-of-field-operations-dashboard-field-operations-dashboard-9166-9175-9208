@@ -7,7 +7,7 @@ function navItemClass({ isActive }) {
 }
 
 export default function AppShell({ currentUser, onLogout, children }) {
-  const canSeeEngineers = currentUser?.role !== Roles.FIELD_ENGINEER;
+  // Login is restricted to Admin / Regional Manager. Navigation should reflect manager experience.
   const canSeeAllocation = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
   const canSeeRoutesConfig = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
 
@@ -36,12 +36,10 @@ export default function AppShell({ currentUser, onLogout, children }) {
           Tasks
         </NavLink>
 
-        {canSeeEngineers && (
-          <NavLink className={navItemClass} to="/engineers">
-            <span className="navIcon">E</span>
-            Engineers
-          </NavLink>
-        )}
+        <NavLink className={navItemClass} to="/engineers">
+          <span className="navIcon">E</span>
+          Engineers
+        </NavLink>
 
         {canSeeAllocation && (
           <NavLink className={navItemClass} to="/allocation">

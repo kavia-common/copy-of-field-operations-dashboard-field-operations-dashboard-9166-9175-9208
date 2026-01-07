@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { listDemoAccounts, loginAsUserId } from "../state/auth";
 import { regions, Roles } from "../data/dummyData";
 
@@ -7,9 +7,20 @@ function regionName(regionId) {
 }
 
 export default function LoginPage({ onLoggedIn }) {
-  const accounts = useMemo(() => listDemoAccounts(), []);
+  // FE login is intentionally removed from the login experience.
+  const accounts = useMemo(
+    () => listDemoAccounts().filter((a) => a.role === Roles.ADMIN || a.role === Roles.REGIONAL_MANAGER),
+    []
+  );
+
   const [selectedUserId, setSelectedUserId] = useState(accounts[0]?.id || "");
   const [error, setError] = useState("");
+
+  // Keep selection valid even if accounts list changes.
+  useEffect(() => {
+    if (selectedUserId && accounts.some((a) => a.id === selectedUserId)) return;
+    setSelectedUserId(accounts[0]?.id || "");
+  }, [accounts, selectedUserId]);
 
   const selected = accounts.find((a) => a.id === selectedUserId);
 
@@ -49,9 +60,6 @@ export default function LoginPage({ onLoggedIn }) {
               <div>
                 <strong>{Roles.REGIONAL_MANAGER}</strong>: restricted to their region (~8 engineers).
               </div>
-              <div>
-                <strong>{Roles.FIELD_ENGINEER}</strong>: sees only their assignments and can update task statuses.
-              </div>
             </div>
           </div>
         </aside>
@@ -66,12 +74,18 @@ export default function LoginPage({ onLoggedIn }) {
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} — {a.role}
-                    {a.role === Roles.REGIONAL_MANAGER || a.role === Roles.FIELD_ENGINEER ? ` (${regionName(a.regionId)})` : ""}
+                    {a.role === Roles.REGIONAL_MANAGER ? ` (${regionName(a.regionId)})` : ""}
                   </option>
                 ))}
               </select>
             </label>
           </div>
+
+          {!accounts.length ? (
+            <div className="notice" style={{ borderColor: "rgba(220,38,38,0.24)", color: "var(--ocean-error)" }}>
+              No Admin or Regional Manager accounts are available.
+            </div>
+          ) : null}
 
           {selected && (
             <div className="card" style={{ padding: 12, marginBottom: 12 }}>

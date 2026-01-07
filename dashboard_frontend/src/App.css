@@ -118,9 +118,7 @@
 }
 
 .topBar {
-  position: sticky;
   top: 0;
-  z-index: 5;
   background: var(--ocean-primary-gradient);
   border-bottom: 1px solid rgba(17, 24, 39, 0.08);
 }

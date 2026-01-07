@@ -2,17 +2,16 @@
  * Dummy domain data for the Field Operations Dashboard.
  * All data is local-only (no backend calls).
  *
+ * DEMO GOALS (2026-01):
+ * - Simple, non-overlapping routes per region (Northeast, Southeast, Central, West).
+ * - Easy to understand: each region has two routes with clearly separated corridors.
+ * - Deterministic progressive updates (handled by src/state/dummyRefresh.js).
+ *
  * IMPORTANT:
  * - IDs and relationships (engineerId/routeId/regionId) must remain consistent across users,
  *   engineerAssignments, engineerLiveLocations, routes, and tasks.
- * - The dummy refresh engine moves engineers along route polylines deterministically every 30s.
- * - MapPanel renders waypoints from polyline vertices. Keep polylines >= 2 points and use valid lat/lng.
- *
- * This dataset is intentionally distributed across US regions for better map visualization:
- * - Northeast (NYC metro / New Jersey corridor)
- * - Southeast (Atlanta / I-75/I-85 area)
- * - Central (Dallas / Fort Worth / I-35 corridor)
- * - West (Los Angeles basin / I-10/I-405 corridors)
+ * - MapPanel renders waypoint markers from route.polyline vertices (raw waypoints).
+ * - OSRM snapping is applied to planned geometry at runtime (MapPanel), so keep points road-adjacent.
  */
 
 export const Roles = Object.freeze({
@@ -52,15 +51,15 @@ export const regions = [
 ];
 
 export const users = [
-  { id: "u_admin", name: "Avery Admin", role: Roles.ADMIN },
+  { id: "u_admin", name: "Admin", role: Roles.ADMIN },
 
-  // Regional managers (MapPanel expects RM users keyed by regionId).
+  // Regional managers
   { id: "u_rm_ne", name: "Riley Northeast", role: Roles.REGIONAL_MANAGER, regionId: "r_ne" },
   { id: "u_rm_se", name: "Sam Southeast", role: Roles.REGIONAL_MANAGER, regionId: "r_se" },
   { id: "u_rm_c", name: "Chris Central", role: Roles.REGIONAL_MANAGER, regionId: "r_c" },
   { id: "u_rm_w", name: "Wren West", role: Roles.REGIONAL_MANAGER, regionId: "r_w" },
 
-  // Field engineers: 16 total, distributed across the 4 regions (4 per region).
+  // Field engineers: 16 total, 4 per region
   { id: "u_eng_1", name: "Jordan Lee", role: Roles.FIELD_ENGINEER, regionId: "r_ne" },
   { id: "u_eng_2", name: "Casey Patel", role: Roles.FIELD_ENGINEER, regionId: "r_ne" },
   { id: "u_eng_3", name: "Taylor Kim", role: Roles.FIELD_ENGINEER, regionId: "r_ne" },
@@ -84,193 +83,283 @@ export const users = [
 
 /**
  * Initial engineer marker locations.
- * These should start near their assigned route polyline to avoid large "teleport" moves
- * on the first deterministic refresh tick.
+ * Keep these close to their assigned route starts to avoid a confusing first move.
  */
 export const engineerLiveLocations = [
-  // Northeast (NYC/NJ corridors)
-  { engineerId: "u_eng_1", lat: 40.7506, lng: -73.9936 }, // Midtown Manhattan (Penn Station)
-  { engineerId: "u_eng_2", lat: 40.7413, lng: -73.9897 }, // Flatiron-ish
-  { engineerId: "u_eng_3", lat: 40.7359, lng: -74.0036 }, // Greenwich Village / West Village
-  { engineerId: "u_eng_4", lat: 40.7282, lng: -74.0336 }, // Jersey City (near Holland Tunnel corridor)
+  // Northeast (Manhattan corridors)
+  { engineerId: "u_eng_1", lat: 40.7581, lng: -73.9855 }, // Midtown (Times Sq)
+  { engineerId: "u_eng_2", lat: 40.7581, lng: -73.9855 }, // Midtown (Times Sq)
+  { engineerId: "u_eng_3", lat: 40.7064, lng: -74.0094 }, // FiDi (Wall St / Broad St)
+  { engineerId: "u_eng_4", lat: 40.7064, lng: -74.0094 }, // FiDi (Wall St / Broad St)
 
   // Southeast (Atlanta)
-  { engineerId: "u_eng_5", lat: 33.7552, lng: -84.3906 }, // Downtown ATL
-  { engineerId: "u_eng_6", lat: 33.7712, lng: -84.3654 }, // Old Fourth Ward / Inman Park
-  { engineerId: "u_eng_7", lat: 33.7864, lng: -84.3879 }, // Midtown ATL
-  { engineerId: "u_eng_8", lat: 33.7339, lng: -84.3937 }, // South ATL (near I-75/85)
+  { engineerId: "u_eng_5", lat: 33.7538, lng: -84.3915 }, // Five Points
+  { engineerId: "u_eng_6", lat: 33.7538, lng: -84.3915 }, // Five Points
+  { engineerId: "u_eng_7", lat: 33.7909, lng: -84.3879 }, // Midtown
+  { engineerId: "u_eng_8", lat: 33.7909, lng: -84.3879 }, // Midtown
 
-  // Central (Dallas/Fort Worth)
-  { engineerId: "u_eng_9", lat: 32.7791, lng: -96.8087 }, // Downtown Dallas
-  { engineerId: "u_eng_10", lat: 32.8003, lng: -96.7699 }, // Uptown / Knox-Henderson area
-  { engineerId: "u_eng_11", lat: 32.7551, lng: -97.3308 }, // Downtown Fort Worth
-  { engineerId: "u_eng_12", lat: 32.8343, lng: -96.9965 }, // Irving (near DFW / Las Colinas)
+  // Central (Dallas)
+  { engineerId: "u_eng_9", lat: 32.7767, lng: -96.797 }, // Downtown Dallas
+  { engineerId: "u_eng_10", lat: 32.7767, lng: -96.797 }, // Downtown Dallas
+  { engineerId: "u_eng_11", lat: 32.7507, lng: -96.8277 }, // Oak Cliff / Bishop Arts-ish
+  { engineerId: "u_eng_12", lat: 32.7507, lng: -96.8277 }, // Oak Cliff / Bishop Arts-ish
 
-  // West (Los Angeles basin)
+  // West (Los Angeles)
   { engineerId: "u_eng_13", lat: 34.0526, lng: -118.2467 }, // DTLA
-  { engineerId: "u_eng_14", lat: 34.0407, lng: -118.2698 }, // Koreatown / Pico-Union
+  { engineerId: "u_eng_14", lat: 34.0526, lng: -118.2467 }, // DTLA
   { engineerId: "u_eng_15", lat: 34.0199, lng: -118.4915 }, // Santa Monica
-  { engineerId: "u_eng_16", lat: 34.147, lng: -118.144 }, // Pasadena
+  { engineerId: "u_eng_16", lat: 34.0199, lng: -118.4915 }, // Santa Monica
 ];
 
+/**
+ * Demo route model additions:
+ * - routeStatus: "not_started" | "in_progress" | "completed"
+ * - demo: per-route deterministic schedule used by dummyRefresh.js
+ *
+ * allowedDeviationMeters is kept for TrackoBit-like corridor logic in MapPanel.
+ */
 export const routes = [
-  // Northeast: NYC -> Lower Manhattan (arterial-like)
+  // ---------------------------
+  // Northeast (Manhattan) — two non-overlapping corridors
+  // ---------------------------
+
+  // NE Route A: Midtown → Union Sq → SoHo → Battery Park (spine-ish)
   {
     id: "route_ne_1",
     regionId: "r_ne",
-    name: "Northeast Loop A (Midtown → Downtown)",
-    planned_stops: 24,
-    completed_stops: 20,
-    missed_stops: 2,
-    on_hold_stops: 1,
-    postponed_stops: 1,
-    // TrackoBit-like rule: allowed deviation corridor around planned route
-    allowedDeviationMeters: 50,
-    // Roughly follows a Manhattan spine with realistic intersections/avenues
+    name: "Northeast A — Midtown → Battery Park",
+    planned_stops: 12,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 60,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 1,
+      completeTick: 10,
+      deviationTick: 5, // short deliberate off-route wiggle
+    },
     polyline: [
-      { lat: 40.758, lng: -73.9855 }, // Times Sq
+      { lat: 40.7581, lng: -73.9855 }, // Times Sq
       { lat: 40.7527, lng: -73.9772 }, // Grand Central
-      { lat: 40.7484, lng: -73.9857 }, // Empire State
+      { lat: 40.7465, lng: -73.9836 }, // Herald Sq
       { lat: 40.7411, lng: -73.9897 }, // Flatiron
-      { lat: 40.7347, lng: -73.9943 }, // Washington Sq
-      { lat: 40.7284, lng: -74.0021 }, // SoHo/West Village edge
-      { lat: 40.7209, lng: -74.0049 }, // Tribeca
-      { lat: 40.7093, lng: -74.0103 }, // WTC
-      { lat: 40.706, lng: -74.009 }, // Battery Park/FiDi edge
+      { lat: 40.7359, lng: -73.9911 }, // Union Sq
+      { lat: 40.7282, lng: -73.9996 }, // SoHo (Prince St)
+      { lat: 40.7223, lng: -74.0049 }, // Tribeca
+      { lat: 40.7155, lng: -74.0094 }, // City Hall Park
+      { lat: 40.7099, lng: -74.0125 }, // WTC
+      { lat: 40.7060, lng: -74.0090 }, // FiDi edge
+      { lat: 40.7033, lng: -74.0170 }, // Battery Park City
+      { lat: 40.7033, lng: -74.0170 }, // (repeat endpoint allowed; keeps destination stable)
     ],
   },
-  // Northeast: NJ corridor (Jersey City / Hoboken / Newark-ish)
+
+  // NE Route B: Financial District → Brooklyn Bridge → DUMBO → Navy Yard (east river edge)
   {
     id: "route_ne_2",
     regionId: "r_ne",
-    name: "Northeast Loop B (Hudson Waterfront)",
-    planned_stops: 18,
-    completed_stops: 11,
-    missed_stops: 3,
-    on_hold_stops: 2,
-    postponed_stops: 2,
-    allowedDeviationMeters: 50,
+    name: "Northeast B — FiDi → DUMBO",
+    planned_stops: 10,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 60,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 2,
+      completeTick: 11,
+      deviationTick: 7,
+    },
     polyline: [
-      { lat: 40.744, lng: -74.0324 }, // Jersey City (Newport)
-      { lat: 40.7393, lng: -74.0296 }, // Exchange Place corridor
-      { lat: 40.7336, lng: -74.041 }, // Paulus Hook
-      { lat: 40.7282, lng: -74.0336 }, // Holland Tunnel approach
-      { lat: 40.7419, lng: -74.0047 }, // west Midtown (near Lincoln Tunnel / West Side)
+      { lat: 40.7064, lng: -74.0094 }, // Wall St / Broad St
+      { lat: 40.7075, lng: -74.0113 }, // Trinity Pl
+      { lat: 40.7057, lng: -74.0121 }, // Battery Pl
+      { lat: 40.7043, lng: -74.0139 }, // West St
+      { lat: 40.7062, lng: -74.0038 }, // near Brooklyn Bridge approach
+      { lat: 40.7068, lng: -73.9969 }, // Brooklyn Bridge (approx)
+      { lat: 40.7033, lng: -73.9895 }, // DUMBO
+      { lat: 40.7004, lng: -73.9870 }, // Brooklyn Bridge Park
+      { lat: 40.6989, lng: -73.9792 }, // Navy Yard edge
+      { lat: 40.6989, lng: -73.9792 },
     ],
   },
 
-  // Southeast: Atlanta perimeter / connector style
+  // ---------------------------
+  // Southeast (Atlanta) — two separated corridors
+  // ---------------------------
+
+  // SE Route A: Downtown (Five Points) → Midtown → Buckhead edge
   {
     id: "route_se_1",
     regionId: "r_se",
-    name: "Southeast Corridor A (Downtown ATL)",
-    planned_stops: 22,
-    completed_stops: 19,
-    missed_stops: 1,
-    on_hold_stops: 1,
-    postponed_stops: 1,
-    allowedDeviationMeters: 50,
+    name: "Southeast A — Downtown → Buckhead",
+    planned_stops: 10,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 70,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 1,
+      completeTick: 9,
+      deviationTick: 6,
+    },
     polyline: [
-      { lat: 33.7552, lng: -84.3906 }, // Downtown
-      { lat: 33.7644, lng: -84.3874 }, // near North Ave / Connector
-      { lat: 33.7726, lng: -84.3847 }, // Midtown
-      { lat: 33.7815, lng: -84.3857 }, // near Arts Center
-      { lat: 33.7899, lng: -84.388 }, // Buckhead-ish south edge
+      { lat: 33.7538, lng: -84.3915 }, // Five Points
+      { lat: 33.7607, lng: -84.3877 }, // Civic Center-ish
+      { lat: 33.7707, lng: -84.3857 }, // Midtown / North Ave
+      { lat: 33.7802, lng: -84.3850 }, // Arts Center-ish
+      { lat: 33.7890, lng: -84.3870 }, // Piedmont area edge
+      { lat: 33.7990, lng: -84.3872 }, // toward Buckhead
+      { lat: 33.8100, lng: -84.3875 }, // Buckhead-ish
+      { lat: 33.8100, lng: -84.3875 },
     ],
   },
+
+  // SE Route B: Eastside / Decatur direction (kept away from Route A)
   {
     id: "route_se_2",
     regionId: "r_se",
-    name: "Southeast Corridor B (Eastside / Beltline)",
-    planned_stops: 20,
-    completed_stops: 10,
-    missed_stops: 5,
-    on_hold_stops: 3,
-    postponed_stops: 2,
-    allowedDeviationMeters: 50,
+    name: "Southeast B — Midtown → Decatur",
+    planned_stops: 10,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 70,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 3,
+      completeTick: 12,
+      deviationTick: 8,
+    },
     polyline: [
-      { lat: 33.7658, lng: -84.3722 }, // near Krog St / Inman Park
-      { lat: 33.7712, lng: -84.3654 }, // Inman Park
-      { lat: 33.781, lng: -84.3645 }, // Poncey-Highland
-      { lat: 33.7926, lng: -84.3641 }, // toward Virginia-Highland / Morningside
-      { lat: 33.805, lng: -84.365 }, // toward North Druid Hills edge
+      { lat: 33.7909, lng: -84.3879 }, // Midtown
+      { lat: 33.7903, lng: -84.3772 }, // toward Ponce
+      { lat: 33.7897, lng: -84.3660 }, // toward Virginia-Highland edge
+      { lat: 33.7879, lng: -84.3542 }, // toward East Lake edge
+      { lat: 33.7848, lng: -84.3420 }, // Avondale Estates-ish
+      { lat: 33.7749, lng: -84.2963 }, // Decatur
+      { lat: 33.7749, lng: -84.2963 },
     ],
   },
 
-  // Central: Dallas / I-35E / downtown connectors
+  // ---------------------------
+  // Central (Dallas) — two corridors, separated north/south
+  // ---------------------------
+
+  // C Route A: Downtown → Uptown → SMU edge (northbound)
   {
     id: "route_c_1",
     regionId: "r_c",
-    name: "Central Route A (Dallas Core)",
-    planned_stops: 21,
-    completed_stops: 16,
-    missed_stops: 2,
-    on_hold_stops: 2,
-    postponed_stops: 1,
-    allowedDeviationMeters: 50,
+    name: "Central A — Downtown → Uptown",
+    planned_stops: 10,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 70,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 2,
+      completeTick: 10,
+      deviationTick: 6,
+    },
     polyline: [
-      { lat: 32.7767, lng: -96.797 }, // Downtown Dallas
-      { lat: 32.7854, lng: -96.8003 }, // Arts District
-      { lat: 32.7952, lng: -96.8012 }, // toward Uptown
-      { lat: 32.801, lng: -96.7906 }, // Knox/Henderson vicinity
-      { lat: 32.8046, lng: -96.772 }, // near SMU/Mockingbird corridor
-    ],
-  },
-  {
-    id: "route_c_2",
-    regionId: "r_c",
-    name: "Central Route B (DFW Connector)",
-    planned_stops: 19,
-    completed_stops: 8,
-    missed_stops: 5,
-    on_hold_stops: 3,
-    postponed_stops: 3,
-    allowedDeviationMeters: 50,
-    polyline: [
-      { lat: 32.7551, lng: -97.3308 }, // Downtown Fort Worth
-      { lat: 32.7813, lng: -97.297 }, // near Arlington Heights direction
-      { lat: 32.8049, lng: -97.1925 }, // Arlington / Six Flags-ish corridor
-      { lat: 32.8444, lng: -97.0416 }, // DFW Airport area
-      { lat: 32.8343, lng: -96.9965 }, // Irving / Las Colinas
+      { lat: 32.7767, lng: -96.797 }, // Downtown
+      { lat: 32.7815, lng: -96.8016 }, // Arts District
+      { lat: 32.7875, lng: -96.7978 }, // Victory Park-ish
+      { lat: 32.7960, lng: -96.7970 }, // Uptown-ish
+      { lat: 32.8046, lng: -96.7720 }, // Mockingbird / SMU edge
+      { lat: 32.8046, lng: -96.7720 },
     ],
   },
 
-  // West: LA basin
+  // C Route B: Oak Cliff → Downtown edge (southwest corridor, separate from Route A)
+  {
+    id: "route_c_2",
+    regionId: "r_c",
+    name: "Central B — Oak Cliff → Downtown",
+    planned_stops: 10,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 70,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 1,
+      completeTick: 9,
+      deviationTick: 5,
+    },
+    polyline: [
+      { lat: 32.7507, lng: -96.8277 }, // Bishop Arts-ish
+      { lat: 32.7539, lng: -96.8158 }, // West Dallas edge
+      { lat: 32.7605, lng: -96.8080 }, // Reunion / river crossing area
+      { lat: 32.7767, lng: -96.7970 }, // Downtown
+      { lat: 32.7767, lng: -96.7970 },
+    ],
+  },
+
+  // ---------------------------
+  // West (Los Angeles) — two corridors, separated east/west
+  // ---------------------------
+
+  // W Route A: DTLA → Koreatown → Beverly Grove (westbound)
   {
     id: "route_w_1",
     regionId: "r_w",
-    name: "West Corridor A (DTLA → Santa Monica)",
-    planned_stops: 23,
-    completed_stops: 18,
-    missed_stops: 2,
-    on_hold_stops: 2,
-    postponed_stops: 1,
-    allowedDeviationMeters: 50,
+    name: "West A — DTLA → Beverly Grove",
+    planned_stops: 10,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 80,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 1,
+      completeTick: 10,
+      deviationTick: 7,
+    },
     polyline: [
       { lat: 34.0526, lng: -118.2467 }, // DTLA
-      { lat: 34.0485, lng: -118.2585 }, // near Pico-Union
-      { lat: 34.0438, lng: -118.2676 }, // Koreatown edge
-      { lat: 34.0362, lng: -118.3702 }, // near La Cienega / I-10 corridor
-      { lat: 34.0261, lng: -118.4726 }, // Santa Monica (near 10/405)
-      { lat: 34.0199, lng: -118.4915 }, // Santa Monica beach area
+      { lat: 34.0493, lng: -118.2585 }, // Pico-Union edge
+      { lat: 34.0472, lng: -118.2741 }, // Koreatown
+      { lat: 34.0462, lng: -118.3190 }, // near La Brea
+      { lat: 34.0736, lng: -118.3617 }, // Beverly Grove edge
+      { lat: 34.0736, lng: -118.3617 },
     ],
   },
+
+  // W Route B: Santa Monica → Culver City (kept away from W Route A)
   {
     id: "route_w_2",
     regionId: "r_w",
-    name: "West Corridor B (Pasadena / Glendale)",
-    planned_stops: 17,
-    completed_stops: 9,
-    missed_stops: 4,
-    on_hold_stops: 2,
-    postponed_stops: 2,
-    allowedDeviationMeters: 50,
+    name: "West B — Santa Monica → Culver City",
+    planned_stops: 10,
+    completed_stops: 0,
+    missed_stops: 0,
+    on_hold_stops: 0,
+    postponed_stops: 0,
+    allowedDeviationMeters: 80,
+    routeStatus: "not_started",
+    demo: {
+      startTick: 2,
+      completeTick: 11,
+      deviationTick: 8,
+    },
     polyline: [
-      { lat: 34.147, lng: -118.144 }, // Pasadena
-      { lat: 34.1437, lng: -118.152 }, // Old Town Pasadena vicinity
-      { lat: 34.1367, lng: -118.1743 }, // Eagle Rock-ish
-      { lat: 34.1256, lng: -118.2551 }, // near Silver Lake / Atwater
-      { lat: 34.0526, lng: -118.2467 }, // back to DTLA
+      { lat: 34.0199, lng: -118.4915 }, // Santa Monica
+      { lat: 34.0169, lng: -118.4661 }, // Brentwood-ish edge
+      { lat: 34.0030, lng: -118.4418 }, // Sawtelle-ish edge
+      { lat: 33.9870, lng: -118.4350 }, // near Culver Blvd edge
+      { lat: 33.9803, lng: -118.3990 }, // Culver City
+      { lat: 33.9803, lng: -118.3990 },
     ],
   },
 ];
@@ -302,7 +391,7 @@ export const engineerAssignments = [
 ];
 
 export const tasks = [
-  // Northeast tasks (engineer 1..4)
+  // Northeast tasks
   {
     id: "t_ne_1001",
     title: "Inspect junction box",
@@ -310,11 +399,9 @@ export const tasks = [
     engineerId: "u_eng_1",
     routeId: "route_ne_1",
     dueDate: "2026-01-10",
-    // Scheduled/next occurrence (read-only on Tasks page)
     nextDueDate: "2026-01-17",
-    // Read-only reschedule date (forward-compatible; may be empty)
-    rescheduledDate: "2026-01-12",
-    status: Statuses.IN_PROGRESS,
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
@@ -325,8 +412,9 @@ export const tasks = [
     regionId: "r_ne",
     engineerId: "u_eng_2",
     routeId: "route_ne_1",
-    dueDate: "2026-01-08",
-    nextDueDate: "2026-01-15",
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
     status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
@@ -338,9 +426,10 @@ export const tasks = [
     regionId: "r_ne",
     engineerId: "u_eng_3",
     routeId: "route_ne_2",
-    dueDate: "2026-01-11",
-    nextDueDate: "2026-01-18",
-    status: Statuses.ON_HOLD,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
@@ -351,24 +440,26 @@ export const tasks = [
     regionId: "r_ne",
     engineerId: "u_eng_4",
     routeId: "route_ne_2",
-    dueDate: "2026-01-09",
-    nextDueDate: "2026-01-16",
-    status: Statuses.COMPLETED,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
   },
 
-  // Southeast tasks (engineer 5..8)
+  // Southeast tasks
   {
     id: "t_se_2001",
     title: "Pole integrity assessment",
     regionId: "r_se",
     engineerId: "u_eng_5",
     routeId: "route_se_1",
-    dueDate: "2026-01-08",
-    nextDueDate: "2026-01-15",
-    status: Statuses.IN_PROGRESS,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
@@ -381,6 +472,7 @@ export const tasks = [
     routeId: "route_se_1",
     dueDate: "2026-01-10",
     nextDueDate: "2026-01-17",
+    rescheduledDate: "",
     status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
@@ -392,9 +484,10 @@ export const tasks = [
     regionId: "r_se",
     engineerId: "u_eng_7",
     routeId: "route_se_2",
-    dueDate: "2026-01-11",
-    nextDueDate: "2026-01-18",
-    status: Statuses.IN_PROGRESS,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
@@ -405,24 +498,26 @@ export const tasks = [
     regionId: "r_se",
     engineerId: "u_eng_8",
     routeId: "route_se_2",
-    dueDate: "2026-01-07",
-    nextDueDate: "2026-01-14",
-    status: Statuses.ON_HOLD,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
   },
 
-  // Central tasks (engineer 9..12)
+  // Central tasks
   {
     id: "t_c_3001",
     title: "Hydrant pressure test",
     regionId: "r_c",
     engineerId: "u_eng_9",
     routeId: "route_c_1",
-    dueDate: "2026-01-12",
-    nextDueDate: "2026-01-19",
-    status: Statuses.IN_PROGRESS,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
@@ -433,10 +528,10 @@ export const tasks = [
     regionId: "r_c",
     engineerId: "u_eng_10",
     routeId: "route_c_1",
-    dueDate: "2026-01-07",
-    nextDueDate: "2026-01-14",
-    rescheduledDate: "2026-01-09",
-    status: Statuses.POSTPONED,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
@@ -447,8 +542,9 @@ export const tasks = [
     regionId: "r_c",
     engineerId: "u_eng_11",
     routeId: "route_c_2",
-    dueDate: "2026-01-13",
-    nextDueDate: "2026-01-20",
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
     status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
@@ -460,24 +556,26 @@ export const tasks = [
     regionId: "r_c",
     engineerId: "u_eng_12",
     routeId: "route_c_2",
-    dueDate: "2026-01-06",
-    nextDueDate: "2026-01-13",
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
     status: Statuses.REDO,
     rejection_reason: "",
-    redo_reason: "Photo evidence missing; please re-submit.",
+    redo_reason: "Missing photo evidence; please re-submit.",
     redo_count: 1,
   },
 
-  // West tasks (engineer 13..16)
+  // West tasks
   {
     id: "t_w_4001",
     title: "Survey cable line",
     regionId: "r_w",
     engineerId: "u_eng_13",
     routeId: "route_w_1",
-    dueDate: "2026-01-09",
-    nextDueDate: "2026-01-16",
-    status: Statuses.COMPLETED,
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
+    status: Statuses.ASSIGNED,
     rejection_reason: "",
     redo_reason: "",
     redo_count: 0,
@@ -488,9 +586,9 @@ export const tasks = [
     regionId: "r_w",
     engineerId: "u_eng_14",
     routeId: "route_w_1",
-    dueDate: "2026-01-12",
-    nextDueDate: "2026-01-19",
-    rescheduledDate: "2026-01-13",
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
     status: Statuses.POSTPONED,
     rejection_reason: "",
     redo_reason: "",
@@ -502,8 +600,9 @@ export const tasks = [
     regionId: "r_w",
     engineerId: "u_eng_15",
     routeId: "route_w_2",
-    dueDate: "2026-01-13",
-    nextDueDate: "2026-01-20",
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
     status: Statuses.REJECTED,
     rejection_reason: "Work order missing required before/after photos.",
     redo_reason: "",
@@ -515,8 +614,9 @@ export const tasks = [
     regionId: "r_w",
     engineerId: "u_eng_16",
     routeId: "route_w_2",
-    dueDate: "2026-01-06",
-    nextDueDate: "2026-01-13",
+    dueDate: "2026-01-10",
+    nextDueDate: "2026-01-17",
+    rescheduledDate: "",
     status: Statuses.IN_PROGRESS,
     rejection_reason: "",
     redo_reason: "",
@@ -525,61 +625,23 @@ export const tasks = [
 ];
 
 export const initialStatusHistory = [
-  // Seed some task lifecycle history across regions (keeps UI examples varied).
+  // Keep a couple of seeded lifecycle events for UI examples.
   {
-    id: "h_1",
+    id: "h_seed_1",
     entityType: "task",
-    entityId: "t_ne_1004",
-    toStatus: Statuses.COMPLETED,
-    reason: "",
-    timestamp: "2026-01-04T14:10:00Z",
-    actorUserId: "u_eng_4",
+    entityId: "t_c_3004",
+    toStatus: Statuses.REDO,
+    reason: "Missing photo evidence; please re-submit.",
+    timestamp: "2026-01-05T08:05:00Z",
+    actorUserId: "u_rm_c",
   },
   {
-    id: "h_2",
-    entityType: "task",
-    entityId: "t_ne_1003",
-    toStatus: Statuses.ON_HOLD,
-    reason: "Awaiting access authorization.",
-    timestamp: "2026-01-04T09:00:00Z",
-    actorUserId: "u_eng_3",
-  },
-  {
-    id: "h_3",
-    entityType: "task",
-    entityId: "t_c_3002",
-    toStatus: Statuses.POSTPONED,
-    reason: "Weather conditions; rescheduling required.",
-    timestamp: "2026-01-03T18:10:00Z",
-    actorUserId: "u_eng_10",
-  },
-  {
-    id: "h_4",
-    entityType: "task",
-    entityId: "t_w_4002",
-    toStatus: Statuses.POSTPONED,
-    reason: "Parts unavailable; awaiting delivery.",
-    timestamp: "2026-01-03T16:30:00Z",
-    actorUserId: "u_eng_14",
-  },
-
-  // Seed examples for new lifecycle transitions:
-  {
-    id: "h_5",
+    id: "h_seed_2",
     entityType: "task",
     entityId: "t_w_4003",
     toStatus: Statuses.REJECTED,
     reason: "Work order missing required before/after photos.",
     timestamp: "2026-01-04T10:20:00Z",
     actorUserId: "u_rm_w",
-  },
-  {
-    id: "h_6",
-    entityType: "task",
-    entityId: "t_c_3004",
-    toStatus: Statuses.REDO,
-    reason: "Photo evidence missing; please re-submit.",
-    timestamp: "2026-01-05T08:05:00Z",
-    actorUserId: "u_rm_c",
   },
 ];

@@ -15,8 +15,19 @@ import { loadSession, logout } from "./state/auth";
 import { getScopedDomain, loadDomainState, resetDomainState } from "./state/domainStore";
 import { Roles } from "./data/dummyData";
 
+function isLoginRoleAllowed(role) {
+  return role === Roles.ADMIN || role === Roles.REGIONAL_MANAGER;
+}
+
 function RequireAuth({ user, children }) {
   const location = useLocation();
+
+  // If any stale/invalid role makes it through, force a clean login.
+  if (user && !isLoginRoleAllowed(user.role)) {
+    logout();
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   return children;
 }
@@ -38,6 +49,7 @@ function App() {
   const [routeFilterId, setRouteFilterId] = useState("");
 
   useEffect(() => {
+    // loadSession() already purges invalid/FE sessions.
     setCurrentUser(loadSession());
   }, []);
 
@@ -69,6 +81,11 @@ function App() {
             ) : (
               <LoginPage
                 onLoggedIn={(u) => {
+                  // Defensive: even if someone hacks the UI, do not accept FE.
+                  if (!isLoginRoleAllowed(u?.role)) {
+                    handleLogout();
+                    return;
+                  }
                   setCurrentUser(u);
                 }}
               />
@@ -136,15 +153,15 @@ function App() {
           path="/tasks"
           element={
             <RequireAuth user={currentUser}>
-              <AppShell currentUser={currentUser} onLogout={handleLogout}>
-                <TasksPage
-                  scopedState={scopedState}
-                  fullState={domainState}
-                  setFullState={setDomainState}
-                  currentUser={currentUser}
-                  routeFilterId={routeFilterId}
-                />
-              </AppShell>
+              <RequireRole user={currentUser} allowRoles={[Roles.ADMIN, Roles.REGIONAL_MANAGER]}>
+                <AppShell currentUser={currentUser} onLogout={handleLogout}>
+                  <TasksPage
+                    scopedState={scopedState}
+                    currentUser={currentUser}
+                    routeFilterId={routeFilterId}
+                  />
+                </AppShell>
+              </RequireRole>
             </RequireAuth>
           }
         />
@@ -189,9 +206,11 @@ function App() {
           path="/dpr"
           element={
             <RequireAuth user={currentUser}>
-              <AppShell currentUser={currentUser} onLogout={handleLogout}>
-                <DPRPage currentUser={currentUser} fullState={domainState} />
-              </AppShell>
+              <RequireRole user={currentUser} allowRoles={[Roles.ADMIN, Roles.REGIONAL_MANAGER]}>
+                <AppShell currentUser={currentUser} onLogout={handleLogout}>
+                  <DPRPage currentUser={currentUser} fullState={domainState} />
+                </AppShell>
+              </RequireRole>
             </RequireAuth>
           }
         />

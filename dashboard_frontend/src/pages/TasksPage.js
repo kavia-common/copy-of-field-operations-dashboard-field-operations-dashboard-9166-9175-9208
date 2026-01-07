@@ -141,11 +141,9 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
   }, [historyForSelected, selectedTask]);
 
   const roleNotice =
-    currentUser.role === Roles.FIELD_ENGINEER
-      ? "Task statuses are shown read-only in this view."
-      : currentUser.role === Roles.REGIONAL_MANAGER
-        ? "You can view tasks within your region. Statuses are read-only on this page."
-        : "You can view all tasks across regions. Statuses are read-only on this page.";
+    currentUser.role === Roles.REGIONAL_MANAGER
+      ? "You can view tasks within your region. Statuses are read-only on this page."
+      : "You can view all tasks across regions. Statuses are read-only on this page.";
 
   return (
     <div className="content">
