@@ -781,6 +781,144 @@ function FitToVisible({ bounds }) {
  * Disables/enables Leaflet interactions without unmounting the map.
  * This preserves map instance state (layers, caches, bounds) while preventing user pan/zoom/keyboard/touch interactions.
  */
+/**
+ * Keeps Leaflet stable during "map is visible but interaction-disabled" phases,
+ * e.g. when app-level modals are open or when fullscreen/resize transitions occur.
+ *
+ * Why this exists:
+ * - Leaflet zoom animations and certain control plugins can read/write `_leaflet_pos`
+ *   during transitions. If the container’s box changes (overlay, fullscreen, CSS),
+ *   Leaflet can transiently see missing pane elements and throw.
+ * - We avoid that by (a) stopping animations when disabling, (b) disabling zoom
+ *   animation while disabled, and (c) forcing invalidateSize after transitions.
+ */
+// PUBLIC_INTERFACE
+function LeafletMapStability({ disabled, containerEl }) {
+  /** Ensures Leaflet has a valid container box during modal/overlay transitions and fullscreen/resize. */
+  const map = useMap();
+
+  React.useEffect(() => {
+    if (!map) return;
+
+    // Snapshot current zoom animation config so we can restore it.
+    const hadZoomAnimation = map.options?.zoomAnimation;
+    const hadMarkerZoomAnimation = map.options?.markerZoomAnimation;
+
+    const stopAnimations = () => {
+      try {
+        map.stop();
+      } catch {
+        // no-op
+      }
+      try {
+        // Stop any active zoom animation explicitly if present
+        map._stop?.();
+      } catch {
+        // no-op
+      }
+    };
+
+    const safeInvalidate = () => {
+      try {
+        map.invalidateSize({ pan: false });
+      } catch {
+        // no-op
+      }
+    };
+
+    // When disabling (modal open), stop animations and turn off zoom animation.
+    // This prevents Leaflet from running animated zoom codepaths while the map is obscured.
+    if (disabled) {
+      stopAnimations();
+      try {
+        map.options.zoomAnimation = false;
+      } catch {}
+      try {
+        map.options.markerZoomAnimation = false;
+      } catch {}
+    } else {
+      // Restore defaults when re-enabled.
+      try {
+        map.options.zoomAnimation = hadZoomAnimation;
+      } catch {}
+      try {
+        map.options.markerZoomAnimation = hadMarkerZoomAnimation;
+      } catch {}
+    }
+
+    // Always invalidate after the state change; do it twice to cover CSS transitions
+    // (modal fade, fullscreen transition, etc.).
+    const raf1 = window.requestAnimationFrame(() => {
+      safeInvalidate();
+      window.setTimeout(() => safeInvalidate(), 160);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      // On unmount, restore options to avoid persisting a "no animation" map.
+      try {
+        map.options.zoomAnimation = hadZoomAnimation;
+      } catch {}
+      try {
+        map.options.markerZoomAnimation = hadMarkerZoomAnimation;
+      } catch {}
+    };
+  }, [map, disabled]);
+
+  React.useEffect(() => {
+    if (!map) return;
+
+    const safeInvalidate = () => {
+      try {
+        map.invalidateSize({ pan: false });
+      } catch {
+        // no-op
+      }
+    };
+
+    // Fullscreen plugin dispatches fullscreenchange events; window resize also matters.
+    const onResize = () => safeInvalidate();
+    window.addEventListener("resize", onResize);
+
+    // Best-effort: if the plugin triggers container resize without window resize, observe the container.
+    let ro = null;
+    if (containerEl && typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => {
+        // Schedule to avoid invalidating mid-layout.
+        window.requestAnimationFrame(() => safeInvalidate());
+      });
+      try {
+        ro.observe(containerEl);
+      } catch {
+        // no-op
+      }
+    }
+
+    // Leaflet fullscreen plugin also emits `fullscreenchange` on the map object in some versions.
+    try {
+      map.on?.("fullscreenchange", onResize);
+    } catch {
+      // no-op
+    }
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      try {
+        map.off?.("fullscreenchange", onResize);
+      } catch {
+        // no-op
+      }
+      try {
+        ro?.disconnect?.();
+      } catch {
+        // no-op
+      }
+    };
+  }, [map, containerEl]);
+
+  return null;
+}
+
 // PUBLIC_INTERFACE
 function LeafletInteractionToggle({ disabled }) {
   /** Toggle all Leaflet interaction handlers on the current map. */
@@ -1000,7 +1138,8 @@ function LeafletControlTheming() {
       }
 
       .card input[type="checkbox"] {
-        accent-color: var(--ocean-primary);
+        /* accent-color cannot be a gradient; use the blue endpoint of the brand gradient */
+        accent-color: #034ea1;
       }
     `}</style>,
     document.head
@@ -1009,6 +1148,7 @@ function LeafletControlTheming() {
 
 export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId, complianceSnapshot, focusDeviation }) {
   const [mapZoom, setMapZoom] = React.useState(12);
+  const mapBoxRef = React.useRef(null);
 
   // Mandatory region selection (defaults to first region in scope).
   const [selectedRegionId, setSelectedRegionId] = React.useState("");
@@ -1611,7 +1751,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         )}
       </div>
 
-      <div className="mapBox">
+      <div
+        className="mapBox"
+        ref={(el) => {
+          // Keep a stable ref for ResizeObserver-based invalidation.
+          // We intentionally store the element in a ref to avoid triggering rerenders.
+          mapBoxRef.current = el;
+        }}
+      >
         {/* 
           Obscure the map whenever the route details modal is open.
           IMPORTANT: we keep the Leaflet map mounted to preserve map state (bounds, layers) and OSRM caches.
@@ -1650,9 +1797,17 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
           </div>
         ) : (
           <>
-            <MapContainer center={initialCenter} zoom={12} scrollWheelZoom style={{ height: "100%", width: "100%" }} preferCanvas zoomControl>
+            <MapContainer
+              center={initialCenter}
+              zoom={12}
+              scrollWheelZoom={!isRouteDetailsModalOpen}
+              style={{ height: "100%", width: "100%" }}
+              preferCanvas
+              zoomControl
+            >
               <LeafletControlTheming />
               <LeafletInteractionToggle disabled={isRouteDetailsModalOpen} />
+              <LeafletMapStability disabled={isRouteDetailsModalOpen} containerEl={mapBoxRef.current} />
 
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -2148,37 +2303,6 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
         )}
       </div>
 
-      <hr className="hr" />
-
-      <div className="splitRow">
-        <div className="mini">
-          Region: <strong>{getRegionName(scopedState, selectedRegionId) || "—"}</strong> · Click a planned route to filter list views. Selected route:{" "}
-          <strong>{selectedRouteId || "None"}</strong>
-          {selectedEngineerId ? (
-            <>
-              {" "}
-              · Suggested engineer: <strong>{getEngineerName(scopedState, selectedEngineerId)}</strong>
-            </>
-          ) : null}
-        </div>
-        <button
-          className="btn btnGhost"
-          onClick={() => {
-            onSelectRouteId?.("");
-            setRouteDetailsModalRouteId("");
-          }}
-          disabled={!selectedRouteId}
-        >
-          Clear route filter
-        </button>
-      </div>
-
-      {selectedRegionId ? (
-        <div className="mini" style={{ marginTop: 10 }}>
-          Showing <strong>{activeRoutes.length}</strong> route(s) and <strong>{activeLocations.length}</strong> engineer(s) for this region. Use the checkboxes to show multiple
-          routes together.
-        </div>
-      ) : null}
     </div>
   );
 }

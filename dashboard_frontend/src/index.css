@@ -19,6 +19,19 @@
 
   --font-sans: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
     "Segoe UI Emoji";
+
+  /* Primary brand gradient (requested) */
+  --ocean-primary-gradient: linear-gradient(87deg, #c5168c, #034ea1);
+
+  /*
+    Hover/active overlays for gradient surfaces.
+    Use overlay rather than altering the gradient, so the look stays consistent across components.
+  */
+  --ocean-primary-hover-overlay: rgba(17, 24, 39, 0.10);
+  --ocean-primary-active-overlay: rgba(17, 24, 39, 0.18);
+
+  /* Focus ring that works on both light backgrounds and gradient surfaces */
+  --ocean-focus-ring: rgba(3, 78, 161, 0.35);
 }
 
 * {

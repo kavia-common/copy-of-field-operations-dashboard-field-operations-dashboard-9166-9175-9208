@@ -1,3 +1,12 @@
+.appShell,
+.sidebar,
+.main,
+.topBar,
+.content {
+  position: relative;
+  z-index: 0;
+}
+
 .appShell {
   display: grid;
   grid-template-columns: 260px 1fr;
@@ -26,7 +35,7 @@
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(30, 58, 138, 1), rgba(245, 158, 11, 1));
+  background: var(--ocean-primary-gradient);
   box-shadow: var(--shadow-sm);
 }
 
@@ -71,8 +80,10 @@
 }
 
 .navItemActive {
-  background: rgba(30, 58, 138, 0.1);
-  border-color: rgba(30, 58, 138, 0.22);
+  background: var(--ocean-primary-gradient);
+  border-color: rgba(17, 24, 39, 0.08);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
 }
 
 .navIcon {
@@ -84,6 +95,12 @@
   background: rgba(17, 24, 39, 0.04);
   border: 1px solid var(--ocean-border);
   font-size: 12px;
+}
+
+.navItemActive .navIcon {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
 }
 
 .sidebarFooter {
@@ -104,9 +121,14 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  background: rgba(243, 244, 246, 0.82);
+  background: var(--ocean-primary-gradient);
+  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+}
+
+/* Keep the original translucent/blur feel and ensure header text is readable on the gradient. */
+.topBarInner {
+  background: rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--ocean-border);
 }
 
 .topBarInner {
@@ -126,20 +148,21 @@
 .pageTitle h1 {
   margin: 0;
   font-size: 18px;
+  color: #ffffff;
 }
 
 .pageTitle p {
   margin: 0;
   font-size: 12px;
-  color: var(--ocean-muted);
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .userPill {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--ocean-surface);
-  border: 1px solid var(--ocean-border);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(17, 24, 39, 0.10);
   border-radius: 999px;
   padding: 8px 10px;
   box-shadow: var(--shadow-sm);
@@ -194,19 +217,51 @@
 }
 
 .btnPrimary {
-  background: var(--ocean-primary);
+  background: var(--ocean-primary-gradient);
   color: #fff;
   border-color: rgba(17, 24, 39, 0.08);
   box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden; /* allows overlay without affecting layout */
 }
 
-.btnPrimary:hover {
-  filter: brightness(1.02);
+.btnPrimary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: background 140ms ease;
+  pointer-events: none;
+}
+
+.btnPrimary:hover::after {
+  background: var(--ocean-primary-hover-overlay);
+}
+
+.btnPrimary:active::after {
+  background: var(--ocean-primary-active-overlay);
+}
+
+.btnPrimary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ocean-focus-ring), var(--shadow-sm);
 }
 
 .btnGhost {
   background: transparent;
   border-color: var(--ocean-border);
+}
+
+.topBar .btn,
+.topBar .btnGhost {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.topBar .btn:hover,
+.topBar .btnGhost:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .btnDanger {
@@ -256,27 +311,31 @@
   min-width: 0;
 }
 
-/* KPI cards on Dashboard: enforce consistent FIXED height and a stable internal layout */
+/* KPI cards on Dashboard: equal-height (match tallest) + stable internal layout */
 .kpiCardFixed {
   /*
-    Static (fixed) height across breakpoints for all dashboard KPI cards.
-    Content must never overlap the reserved footer/action row.
+    IMPORTANT:
+    - We intentionally do NOT use a fixed height. The tallest card defines the grid row height.
+    - Grid items stretch in the cross axis by default; we enforce it explicitly to avoid regressions.
+    - Card stays a column flex container so the footer can be pinned without overlapping content.
   */
-  height: 300px; /* increased so KPI body content + helper text fits cleanly */
+  height: auto;
+  min-height: 100%;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden; /* keep internal overflow contained inside card */
+  overflow: hidden; /* keep any internal overflows visually contained */
 }
 
 /*
-  Reserve a dedicated footer/action area so the "Show details" button never overlaps
-  the KPI content. The body becomes the only flexible region.
+  Body is the flexible region; footer is pinned at the bottom via margin-top:auto on the footer.
+  Use overflow: visible so helper text is never clipped/truncated.
 */
 .kpiCardBody {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden; /* prevents content from bleeding into the footer area */
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -284,12 +343,12 @@
 
 .kpiCardFooter {
   flex: 0 0 auto;
-  margin-top: auto;
+  margin-top: auto; /* pin footer to bottom inside equal-height card */
   padding-top: 10px;
   border-top: 1px solid var(--ocean-border);
   position: relative;
-  z-index: 1; /* ensure footer/button stays above any internal backgrounds */
-  background: var(--ocean-surface); /* avoids visual blending if body scroll/clips */
+  z-index: 1;
+  background: var(--ocean-surface);
 }
 
 /* Keep footer height stable and avoid wrapping into multiple lines */
@@ -300,6 +359,29 @@
   line-height: 1;
 }
 
+/* Primary accent links (gradient text) */
+a.detailsLink,
+a.linkPrimary {
+  background: var(--ocean-primary-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+}
+
+a.detailsLink:hover,
+a.linkPrimary:hover {
+  filter: brightness(0.98);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+a.detailsLink:active,
+a.linkPrimary:active {
+  filter: brightness(0.92);
+}
+
 /* Ensure the action row always aligns cleanly and doesn't wrap into content */
 .kpiCardFooter .splitRow {
   align-items: center;
@@ -308,12 +390,10 @@
   flex-wrap: nowrap;
 }
 
-/* Clamp helper lines inside KPI cards so fixed height never overflows */
+/* Helper text must never be clipped in the new auto-height cards */
 .kpiCardBody .mini {
-  display: -webkit-box;
-  -webkit-line-clamp: 4; /* allow a bit more helper copy now that card height increased */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block;
+  overflow: visible;
 }
 
 .cardHeader {
@@ -376,6 +456,9 @@
   gap: 14px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   min-width: 0;
+
+  /* Key behavior: cards in the same row match the tallest card */
+  align-items: stretch;
 }
 
 @media (max-width: 1100px) {
@@ -569,10 +652,9 @@
   We keep these centralized to avoid future z-index "arms races" between overlays, modals, and Leaflet.
 */
 :root {
-  --z-map: 0;
-  --z-map-overlay: 40; /* obscures map while modal open */
-  --z-modal: 100; /* app modal must always be above any map overlay/panes */
-  --z-toast: 110;
+  --z-map-overlay: 800;
+  --z-modal: 1000;
+  --z-toast: 1100;
 }
 
 .mapBox {
@@ -602,6 +684,7 @@
   place-items: center;
   background: linear-gradient(135deg, rgba(30, 58, 138, 0.16), rgba(245, 158, 11, 0.10));
   backdrop-filter: blur(6px);
+  pointer-events: none; /* prevent unexpected pointer sequences during zoom/transition */
 }
 
 .mapObscureOverlayInner {
@@ -715,7 +798,10 @@
   font-weight: 950;
   font-size: 16px;
   line-height: 1;
-  color: var(--ocean-primary);
+  background: var(--ocean-primary-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 /* Make controls a touch smaller on very small screens to avoid covering the map */
@@ -764,7 +850,8 @@
   background: rgba(17, 24, 39, 0.55);
   display: grid;
   place-items: center;
-  z-index: var(--z-modal);
+  z-index: 9999;
+  isolation: isolate;
   padding: 18px;
 }
 

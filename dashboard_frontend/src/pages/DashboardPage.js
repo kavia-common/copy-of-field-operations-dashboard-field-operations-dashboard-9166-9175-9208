@@ -202,7 +202,16 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
       {/* Top: Legend (left) + Map (right) */}
       <div data-testid="dashboard-map">
         <div className="card" style={{ marginBottom: 12 }}>
-          <div className="splitRow" style={{ alignItems: "center" }}>
+          {/* Map card header: remove splitRow usage ONLY here; keep equivalent responsive flex behavior inline. */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
             <div>
               <div style={{ fontWeight: 900 }}>Live dummy feed</div>
               <div className="mini">
