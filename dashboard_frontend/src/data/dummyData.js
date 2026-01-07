@@ -123,12 +123,12 @@ export const routes = [
   // Northeast (Manhattan) — two non-overlapping corridors
   // ---------------------------
 
-  // NE Route A: Midtown → Union Sq → SoHo → Battery Park (spine-ish)
+  // NE Route A: Midtown → SoHo → Battery Park (simplified, fewer vertices)
   {
     id: "route_ne_1",
     regionId: "r_ne",
     name: "Northeast A — Midtown → Battery Park",
-    planned_stops: 12,
+    planned_stops: 8,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -142,26 +142,21 @@ export const routes = [
     },
     polyline: [
       { lat: 40.7581, lng: -73.9855 }, // Times Sq
-      { lat: 40.7527, lng: -73.9772 }, // Grand Central
       { lat: 40.7465, lng: -73.9836 }, // Herald Sq
-      { lat: 40.7411, lng: -73.9897 }, // Flatiron
       { lat: 40.7359, lng: -73.9911 }, // Union Sq
       { lat: 40.7282, lng: -73.9996 }, // SoHo (Prince St)
-      { lat: 40.7223, lng: -74.0049 }, // Tribeca
       { lat: 40.7155, lng: -74.0094 }, // City Hall Park
       { lat: 40.7099, lng: -74.0125 }, // WTC
-      { lat: 40.7060, lng: -74.0090 }, // FiDi edge
       { lat: 40.7033, lng: -74.0170 }, // Battery Park City
-      { lat: 40.7033, lng: -74.0170 }, // (repeat endpoint allowed; keeps destination stable)
     ],
   },
 
-  // NE Route B: Financial District → Brooklyn Bridge → DUMBO → Navy Yard (east river edge)
+  // NE Route B: FiDi → Brooklyn Bridge → DUMBO (simplified)
   {
     id: "route_ne_2",
     regionId: "r_ne",
     name: "Northeast B — FiDi → DUMBO",
-    planned_stops: 10,
+    planned_stops: 7,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -175,15 +170,11 @@ export const routes = [
     },
     polyline: [
       { lat: 40.7064, lng: -74.0094 }, // Wall St / Broad St
-      { lat: 40.7075, lng: -74.0113 }, // Trinity Pl
-      { lat: 40.7057, lng: -74.0121 }, // Battery Pl
       { lat: 40.7043, lng: -74.0139 }, // West St
       { lat: 40.7062, lng: -74.0038 }, // near Brooklyn Bridge approach
       { lat: 40.7068, lng: -73.9969 }, // Brooklyn Bridge (approx)
       { lat: 40.7033, lng: -73.9895 }, // DUMBO
       { lat: 40.7004, lng: -73.9870 }, // Brooklyn Bridge Park
-      { lat: 40.6989, lng: -73.9792 }, // Navy Yard edge
-      { lat: 40.6989, lng: -73.9792 },
     ],
   },
 
@@ -191,12 +182,12 @@ export const routes = [
   // Southeast (Atlanta) — two separated corridors
   // ---------------------------
 
-  // SE Route A: Downtown (Five Points) → Midtown → Buckhead edge
+  // SE Route A: Downtown → Buckhead (simplified)
   {
     id: "route_se_1",
     regionId: "r_se",
     name: "Southeast A — Downtown → Buckhead",
-    planned_stops: 10,
+    planned_stops: 7,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -210,22 +201,19 @@ export const routes = [
     },
     polyline: [
       { lat: 33.7538, lng: -84.3915 }, // Five Points
-      { lat: 33.7607, lng: -84.3877 }, // Civic Center-ish
       { lat: 33.7707, lng: -84.3857 }, // Midtown / North Ave
-      { lat: 33.7802, lng: -84.3850 }, // Arts Center-ish
       { lat: 33.7890, lng: -84.3870 }, // Piedmont area edge
       { lat: 33.7990, lng: -84.3872 }, // toward Buckhead
       { lat: 33.8100, lng: -84.3875 }, // Buckhead-ish
-      { lat: 33.8100, lng: -84.3875 },
     ],
   },
 
-  // SE Route B: Eastside / Decatur direction (kept away from Route A)
+  // SE Route B: Midtown → Decatur (simplified, fewer vertices)
   {
     id: "route_se_2",
     regionId: "r_se",
     name: "Southeast B — Midtown → Decatur",
-    planned_stops: 10,
+    planned_stops: 6,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -239,12 +227,9 @@ export const routes = [
     },
     polyline: [
       { lat: 33.7909, lng: -84.3879 }, // Midtown
-      { lat: 33.7903, lng: -84.3772 }, // toward Ponce
       { lat: 33.7897, lng: -84.3660 }, // toward Virginia-Highland edge
-      { lat: 33.7879, lng: -84.3542 }, // toward East Lake edge
       { lat: 33.7848, lng: -84.3420 }, // Avondale Estates-ish
       { lat: 33.7749, lng: -84.2963 }, // Decatur
-      { lat: 33.7749, lng: -84.2963 },
     ],
   },
 
@@ -252,12 +237,12 @@ export const routes = [
   // Central (Dallas) — two corridors, separated north/south
   // ---------------------------
 
-  // C Route A: Downtown → Uptown → SMU edge (northbound)
+  // C Route A: Downtown → Uptown (simplified)
   {
     id: "route_c_1",
     regionId: "r_c",
     name: "Central A — Downtown → Uptown",
-    planned_stops: 10,
+    planned_stops: 6,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -271,20 +256,18 @@ export const routes = [
     },
     polyline: [
       { lat: 32.7767, lng: -96.797 }, // Downtown
-      { lat: 32.7815, lng: -96.8016 }, // Arts District
       { lat: 32.7875, lng: -96.7978 }, // Victory Park-ish
       { lat: 32.7960, lng: -96.7970 }, // Uptown-ish
       { lat: 32.8046, lng: -96.7720 }, // Mockingbird / SMU edge
-      { lat: 32.8046, lng: -96.7720 },
     ],
   },
 
-  // C Route B: Oak Cliff → Downtown edge (southwest corridor, separate from Route A)
+  // C Route B: Oak Cliff → Downtown (simplified)
   {
     id: "route_c_2",
     regionId: "r_c",
     name: "Central B — Oak Cliff → Downtown",
-    planned_stops: 10,
+    planned_stops: 5,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -298,10 +281,8 @@ export const routes = [
     },
     polyline: [
       { lat: 32.7507, lng: -96.8277 }, // Bishop Arts-ish
-      { lat: 32.7539, lng: -96.8158 }, // West Dallas edge
       { lat: 32.7605, lng: -96.8080 }, // Reunion / river crossing area
       { lat: 32.7767, lng: -96.7970 }, // Downtown
-      { lat: 32.7767, lng: -96.7970 },
     ],
   },
 
@@ -309,12 +290,12 @@ export const routes = [
   // West (Los Angeles) — two corridors, separated east/west
   // ---------------------------
 
-  // W Route A: DTLA → Koreatown → Beverly Grove (westbound)
+  // W Route A: DTLA → Beverly Grove (simplified)
   {
     id: "route_w_1",
     regionId: "r_w",
     name: "West A — DTLA → Beverly Grove",
-    planned_stops: 10,
+    planned_stops: 6,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -328,20 +309,18 @@ export const routes = [
     },
     polyline: [
       { lat: 34.0526, lng: -118.2467 }, // DTLA
-      { lat: 34.0493, lng: -118.2585 }, // Pico-Union edge
       { lat: 34.0472, lng: -118.2741 }, // Koreatown
       { lat: 34.0462, lng: -118.3190 }, // near La Brea
       { lat: 34.0736, lng: -118.3617 }, // Beverly Grove edge
-      { lat: 34.0736, lng: -118.3617 },
     ],
   },
 
-  // W Route B: Santa Monica → Culver City (kept away from W Route A)
+  // W Route B: Santa Monica → Culver City (simplified)
   {
     id: "route_w_2",
     regionId: "r_w",
     name: "West B — Santa Monica → Culver City",
-    planned_stops: 10,
+    planned_stops: 6,
     completed_stops: 0,
     missed_stops: 0,
     on_hold_stops: 0,
@@ -355,11 +334,9 @@ export const routes = [
     },
     polyline: [
       { lat: 34.0199, lng: -118.4915 }, // Santa Monica
-      { lat: 34.0169, lng: -118.4661 }, // Brentwood-ish edge
       { lat: 34.0030, lng: -118.4418 }, // Sawtelle-ish edge
       { lat: 33.9870, lng: -118.4350 }, // near Culver Blvd edge
       { lat: 33.9803, lng: -118.3990 }, // Culver City
-      { lat: 33.9803, lng: -118.3990 },
     ],
   },
 ];

@@ -197,7 +197,9 @@ function applyMildGpsNoise(p, engineerId, tick) {
  * - offset is ~120m east + 40m north to exceed route.allowedDeviationMeters (60-80m) reliably.
  */
 function applyDeliberateDeviation(p) {
-  return offsetPointMeters(p, 120, 40);
+  // Make deviations unmistakable even with simplified planned routes:
+  // ~150m east + ~60m north reliably exceeds 60–80m thresholds, but remains visually near the route.
+  return offsetPointMeters(p, 150, 60);
 }
 
 /**

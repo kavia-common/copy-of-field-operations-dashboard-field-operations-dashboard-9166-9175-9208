@@ -91,7 +91,6 @@ export default function AppShell({ currentUser, onLogout, children }) {
           <div className="topBarInner">
             <div className="pageTitle">
               <h1>Field Operations Dashboard</h1>
-              <p>Role-based visibility · Dummy local data · Status tracking</p>
             </div>
 
             <div className="userPill" aria-label="Current user">

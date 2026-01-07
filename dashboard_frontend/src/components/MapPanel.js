@@ -147,14 +147,17 @@ function strokeWeightForZoom(zoom, { min = 4, max = 8 } = {}) {
 }
 
 /**
- * UX Layer styles (per attached spec):
- * - Planned route: blue dashed
- * - Live GPS trail: green (on-route) or red (deviated)
- * - Deviation segments: red emphasis
- * - Corridor (buffer): translucent red fill when enabled
+ * UX Layer styles (updated per request):
+ * - Planned route: blue dashed underlay, slightly thicker + softer opacity (never dominates).
+ * - Actual route: solid, thicker, high-contrast (deep blue) above planned.
+ * - Deviations: ONLY off-route segments, solid red, rendered on top with a subtle halo/glow.
+ *
+ * NOTE:
+ * - We keep OSRM snapping for planned geometry.
+ * - We keep Turf-based deviation detection for identifying off-route segments.
  */
-const PLANNED_BLUE = "#2563EB"; // blue-600
-const LIVE_GREEN = "#059669"; // green-600
+const PLANNED_BLUE = "#2563EB"; // blue-600 (planned underlay)
+const ACTUAL_BLUE = "#1E3A8A"; // deep navy (actual)
 const DEVIATION_RED = "#DC2626"; // red-600
 
 const WAYPOINT_REMAINING = "#F59E0B"; // amber-500
@@ -178,28 +181,20 @@ function makePinSvg({ fill, stroke = "rgba(17,24,39,0.35)", glyph = "", glyphCol
 
 function makeGoogleMapsStyleDestinationSvg() {
   /**
-   * A Google Maps–style destination pin:
-   * - red outer pin
-   * - white inner circle
-   * - small red dot in the center
-   *
-   * Implemented as inline SVG so we don't introduce new dependencies or alter layer behavior.
+   * Smaller Google Maps–style destination pin to avoid covering polylines.
    */
   return `
-  <svg width="34" height="50" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="destination marker">
+  <svg width="28" height="42" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="destination marker">
     <defs>
       <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="rgba(17,24,39,0.30)" />
+        <feDropShadow dx="0" dy="2" stdDeviation="1.4" flood-color="rgba(17,24,39,0.28)" />
       </filter>
     </defs>
 
     <g filter="url(#shadow)">
-      <!-- Pin body -->
       <path d="M17 49 C17 49 31 32.5 31 19.5 C31 8.9 24.1 2 17 2 C9.9 2 3 8.9 3 19.5 C3 32.5 17 49 17 49 Z"
         fill="#EA4335" stroke="rgba(17,24,39,0.18)" stroke-width="1.2"/>
-      <!-- Inner white circle -->
       <circle cx="17" cy="19.5" r="8.8" fill="#FFFFFF"/>
-      <!-- Center dot -->
       <circle cx="17" cy="19.5" r="3.2" fill="#EA4335"/>
     </g>
   </svg>`;
@@ -207,33 +202,30 @@ function makeGoogleMapsStyleDestinationSvg() {
 
 function makeGoogleMapsStyleStartSvg() {
   /**
-   * Start marker: same destination-like pin silhouette, but green.
-   * We keep the same size and anchor as destination so the tip aligns correctly.
+   * Smaller start pin (green) to match destination size and reduce clutter.
    */
   return `
-  <svg width="34" height="50" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="start marker">
+  <svg width="28" height="42" viewBox="0 0 34 50" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="start marker">
     <defs>
       <filter id="shadowStart" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="rgba(17,24,39,0.30)" />
+        <feDropShadow dx="0" dy="2" stdDeviation="1.4" flood-color="rgba(17,24,39,0.28)" />
       </filter>
     </defs>
 
     <g filter="url(#shadowStart)">
-      <!-- Pin body -->
       <path d="M17 49 C17 49 31 32.5 31 19.5 C31 8.9 24.1 2 17 2 C9.9 2 3 8.9 3 19.5 C3 32.5 17 49 17 49 Z"
         fill="#059669" stroke="rgba(17,24,39,0.18)" stroke-width="1.2"/>
-      <!-- Inner white circle -->
       <circle cx="17" cy="19.5" r="8.8" fill="#FFFFFF"/>
-      <!-- Center dot -->
       <circle cx="17" cy="19.5" r="3.2" fill="#059669"/>
     </g>
   </svg>`;
 }
 
 function makeDotSvg({ fill, stroke = "rgba(17,24,39,0.30)" }) {
+  // Smaller waypoint dot to avoid covering the line.
   return `
-  <svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="waypoint">
-    <circle cx="7" cy="7" r="5.2" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />
+  <svg width="10" height="10" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="waypoint">
+    <circle cx="7" cy="7" r="4.6" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />
   </svg>`;
 }
 
@@ -311,17 +303,17 @@ const engineerAvatarIcon = makeEngineerIcon({ variant: "avatar", fill: "#2563EB"
 const destinationDivIcon = L.divIcon({
   className: "oceanMarker oceanMarkerDestination",
   html: makeGoogleMapsStyleDestinationSvg(),
-  iconSize: [34, 50],
-  iconAnchor: [17, 49],
-  tooltipAnchor: [0, -34],
+  iconSize: [28, 42],
+  iconAnchor: [14, 41],
+  tooltipAnchor: [0, -30],
 });
 
 const startDivIcon = L.divIcon({
   className: "oceanMarker oceanMarkerStart",
   html: makeGoogleMapsStyleStartSvg(),
-  iconSize: [34, 50],
-  iconAnchor: [17, 49], // tip aligns to start coordinate
-  tooltipAnchor: [0, -34],
+  iconSize: [28, 42],
+  iconAnchor: [14, 41], // tip aligns to start coordinate
+  tooltipAnchor: [0, -30],
 });
 
 function makeWaypointIcon({ status }) {
@@ -335,13 +327,14 @@ function makeWaypointIcon({ status }) {
   });
 }
 
-function clampWaypointCountForMarkers(polyline = [], max = 60) {
+function clampWaypointCountForMarkers(polyline = [], max = 24) {
   const pts = Array.isArray(polyline) ? polyline : [];
   if (pts.length <= max) return pts;
 
-  // Keep first + last, then sample evenly. This prevents hundreds of markers from bogging the map.
+  // Keep first + last, then sample evenly.
+  // Lower default max to reduce clutter (markers can easily cover polylines).
   const out = [];
-  const keep = Math.max(2, Number(max) || 60);
+  const keep = Math.max(2, Number(max) || 24);
   const stride = Math.ceil(pts.length / keep);
   for (let i = 0; i < pts.length; i += stride) out.push(pts[i]);
   const last = pts[pts.length - 1];
@@ -364,15 +357,59 @@ function computeWaypointCoverageStatus({ route, scopedState }) {
 }
 
 function plannedRouteStyle({ zoom }) {
-  const base = strokeWeightForZoom(zoom, { min: 5, max: 9 });
-  return { color: PLANNED_BLUE, weight: base, opacity: 0.95, dashArray: "8 10", lineCap: "round", lineJoin: "round" };
+  // Planned: slightly thicker but soft opacity; dashed; should not dominate actual.
+  const base = strokeWeightForZoom(zoom, { min: 6, max: 10 });
+  return {
+    color: PLANNED_BLUE,
+    weight: base,
+    opacity: 0.32,
+    dashArray: "10 12",
+    lineCap: "round",
+    lineJoin: "round",
+  };
 }
 
-function livePathStyle({ zoom, isDeviated }) {
-  const base = strokeWeightForZoom(zoom, { min: 4, max: 8 });
+function plannedRouteUnderlayStyle({ zoom }) {
+  // Soft underlay to help planned read as a "guide" without competing with actual.
+  const base = strokeWeightForZoom(zoom, { min: 8, max: 12 });
   return {
-    color: isDeviated ? DEVIATION_RED : LIVE_GREEN,
-    weight: Math.max(3, base - 1),
+    color: PLANNED_BLUE,
+    weight: base,
+    opacity: 0.14,
+    dashArray: "10 12",
+    lineCap: "round",
+    lineJoin: "round",
+  };
+}
+
+function actualRouteStyle({ zoom }) {
+  const base = strokeWeightForZoom(zoom, { min: 6, max: 10 });
+  return {
+    color: ACTUAL_BLUE,
+    weight: base,
+    opacity: 0.98,
+    lineCap: "round",
+    lineJoin: "round",
+  };
+}
+
+function deviationHaloStyle({ zoom }) {
+  // Subtle "glow" halo behind the red deviation segment (drawn first).
+  const base = strokeWeightForZoom(zoom, { min: 6, max: 10 });
+  return {
+    color: "rgba(255,255,255,0.92)",
+    weight: base + 6,
+    opacity: 0.9,
+    lineCap: "round",
+    lineJoin: "round",
+  };
+}
+
+function deviationSegmentStyle({ zoom }) {
+  const base = strokeWeightForZoom(zoom, { min: 6, max: 10 });
+  return {
+    color: DEVIATION_RED,
+    weight: base + 1,
     opacity: 0.98,
     lineCap: "round",
     lineJoin: "round",
@@ -429,15 +466,10 @@ function segmentTrailByDeviation({ trailLatLngs, routeLine, thresholdMeters }) {
   return segments;
 }
 
-function deviationSegmentStyle({ zoom }) {
-  const base = strokeWeightForZoom(zoom, { min: 5, max: 10 });
-  return { color: DEVIATION_RED, weight: base, opacity: 0.98, lineCap: "round", lineJoin: "round" };
-}
-
 function corridorStyle() {
-  // Polyline “fill look” via thick translucent stroke (keeps Leaflet polyline-only rendering).
-  // If you want a true polygon fill, we'd introduce react-leaflet <GeoJSON>, but kept minimal here.
-  return { color: DEVIATION_RED, weight: 18, opacity: 0.08, dashArray: null, lineCap: "round", lineJoin: "round" };
+  // Optional visual aid: very subtle corridor along planned route.
+  // Kept extremely light to avoid clutter and to keep planned/actual/deviation the primary story.
+  return { color: PLANNED_BLUE, weight: 16, opacity: 0.06, dashArray: null, lineCap: "round", lineJoin: "round" };
 }
 
 function selectionHighlightStyle({ zoom }) {
@@ -764,6 +796,19 @@ function InvalidateSizeOnMountAndResize({ triggerKey }) {
   return null;
 }
 
+/**
+ * Auto-fit controller used to trigger a one-time fitBounds ONLY when the selected region changes.
+ *
+ * Why:
+ * - `bounds` is derived from live data and can change on every refresh tick; we *do not* want to re-fit on every tick.
+ * - When the user changes the region, we want to re-fit to the visible geometry for that region (routes + markers + trails),
+ *   using the existing `FitToVisible` routine.
+ *
+ * How:
+ * - We keep a "region snapshot bounds" in parent state and only update it when `selectedRegionId` changes
+ *   (or when a programmatic region switch occurs via focusDeviation).
+ * - We still compute live `bounds` for initial mount / empty-state / controls, but FitToVisible receives the snapshot.
+ */
 // PUBLIC_INTERFACE
 function FitToVisible({ bounds }) {
   /** Fits the Leaflet map viewport to the given bounds when bounds changes. */
@@ -1153,11 +1198,20 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   // Mandatory region selection (defaults to first region in scope).
   const [selectedRegionId, setSelectedRegionId] = React.useState("");
 
+  /**
+   * Bounds snapshot used for "auto-center on region change".
+   * IMPORTANT: this is intentionally *not* updated on every refresh tick.
+   */
+  const [regionAutoFitBounds, setRegionAutoFitBounds] = React.useState(null);
+
   // Multi-route visibility set.
   const [visibleRouteIds, setVisibleRouteIds] = React.useState(() => new Set());
 
   // App-level route details modal (replaces Leaflet inline popup to avoid shrinking inside the map).
   const [routeDetailsModalRouteId, setRouteDetailsModalRouteId] = React.useState("");
+
+  // Demo helper: temporarily isolate a single route (when modal is open).
+  const [isolateRouteId, setIsolateRouteId] = React.useState("");
 
   // Whether the route details modal is open (used to obscure the map without unmounting it).
   const isRouteDetailsModalOpen = Boolean(routeDetailsModalRouteId);
@@ -1166,7 +1220,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   const [showPlannedRoutes, setShowPlannedRoutes] = React.useState(true);
   const [showLiveTrails, setShowLiveTrails] = React.useState(true);
   const [showDeviations, setShowDeviations] = React.useState(true);
-  const [showDeviationCorridor, setShowDeviationCorridor] = React.useState(true);
+  const [showDeviationCorridor, setShowDeviationCorridor] = React.useState(false);
 
   // Deviation settings (TrackoBit-like): default 50m, but each route may override via `allowedDeviationMeters`.
   const DEFAULT_ALLOWED_DEVIATION_METERS = 50;
@@ -1212,24 +1266,38 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     // If selectedRouteId is not in new region, clear it.
     if (selectedRouteId && !ids.has(selectedRouteId)) onSelectRouteId?.("");
     setRouteDetailsModalRouteId("");
+    setIsolateRouteId("");
+
+    // NOTE: Do NOT fit here: bounds depends on derived geometry that is computed later in this render cycle.
+    // We snapshot bounds in a separate effect that listens to selectedRegionId + the latest computed bounds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRegionId]);
 
   const routeColorById = useMemo(() => buildRouteColorMap(routesInRegion), [routesInRegion]);
 
   const activeRoutes = useMemo(() => {
+    if (isolateRouteId) {
+      return (routesInRegion || []).filter((r) => r.id === isolateRouteId);
+    }
     const allowed = visibleRouteIds;
     return (routesInRegion || []).filter((r) => allowed.has(r.id));
-  }, [routesInRegion, visibleRouteIds]);
+  }, [routesInRegion, visibleRouteIds, isolateRouteId]);
 
   const activeLocations = useMemo(() => {
-    // Engineers are auto-shown for the selected region.
+    // Engineers are auto-shown for the selected region, optionally filtered to the isolated route.
     if (!selectedRegionId) return [];
+
     const regionEngineerIds = new Set(
       (scopedState?.users || []).filter((u) => u.role === "Field Engineer" && u.regionId === selectedRegionId).map((u) => u.id)
     );
-    return (allLocations || []).filter((l) => regionEngineerIds.has(l.engineerId));
-  }, [allLocations, scopedState?.users, selectedRegionId]);
+
+    const regionLocations = (allLocations || []).filter((l) => regionEngineerIds.has(l.engineerId));
+
+    if (!isolateRouteId) return regionLocations;
+
+    const engineerIdsForIsolatedRoute = new Set(selectEngineerIdsForRoute(scopedState, isolateRouteId) || []);
+    return regionLocations.filter((l) => engineerIdsForIsolatedRoute.has(l.engineerId));
+  }, [allLocations, scopedState, selectedRegionId, isolateRouteId]);
 
   // OSRM waypoint meta for visible routes.
   const routesWaypointMeta = useMemo(() => {
@@ -1444,10 +1512,26 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     return m;
   }, [activeLocations, assignments, allRoutes, routesWaypointMetaByRouteId, snappedByKey]);
 
-  // Fit-to-bounds considers visible planned routes + engineer trails + deviation segments (preserves prior fit behavior).
+  // Fit-to-bounds: prioritize currently visible actual + deviation geometry.
+  // Planned is included (so route context remains), but sampled lightly so it doesn't pull view too far.
   const latLngsForBounds = useMemo(() => {
     const pts = [];
 
+    // 1) Actual + deviations first (full influence)
+    (activeLocations || []).forEach((l) => {
+      if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng)) return;
+      pts.push([l.lat, l.lng]);
+
+      const live = liveTrailsByEngineerId.get(l.engineerId);
+
+      // Include the true GPS trail points.
+      (live?.trailLatLngs || []).forEach((p) => pts.push(p));
+
+      // Include segmented trail points (explicitly captures deviation runs).
+      (live?.segmentedTrail || []).forEach((seg) => (seg?.positions || []).forEach((p) => pts.push(p)));
+    });
+
+    // 2) Planned (sampled lightly)
     activeRoutes.forEach((r) => {
       const waypointMeta = routesWaypointMetaByRouteId.get(r.id);
       const snapKey = waypointMeta?.key || "";
@@ -1456,30 +1540,15 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
       const rawPlannedPositions = toLatLngs(r.polyline);
       const plannedPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : rawPlannedPositions;
 
-      plannedPositions.forEach((p) => pts.push(p));
+      // Light sampling of planned route so it doesn't dominate bounds.
+      const sampledPlanned = clampWaypointCountForMarkers(plannedPositions, 18);
+      sampledPlanned.forEach((p) => pts.push(p));
 
-      // Include start marker, waypoint markers & destination in fit-to-bounds.
+      // Still include start/destination pins so the route context is clear.
       const start = rawPlannedPositions[0];
       if (Array.isArray(start) && start.length === 2) pts.push(start);
-
-      const sampledWaypoints = clampWaypointCountForMarkers(rawPlannedPositions, 60);
-      sampledWaypoints.forEach((p) => pts.push(p));
       const dest = rawPlannedPositions[rawPlannedPositions.length - 1];
       if (Array.isArray(dest) && dest.length === 2) pts.push(dest);
-    });
-
-    // Live trails + segmented trail (on/off) + live engineer marker
-    (activeLocations || []).forEach((l) => {
-      if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng)) return;
-      pts.push([l.lat, l.lng]);
-
-      const live = liveTrailsByEngineerId.get(l.engineerId);
-
-      // Always include the raw GPS trail points.
-      (live?.trailLatLngs || []).forEach((p) => pts.push(p));
-
-      // Also include any segmented points (covers both on-route and off-route explicitly).
-      (live?.segmentedTrail || []).forEach((seg) => (seg?.positions || []).forEach((p) => pts.push(p)));
     });
 
     return pts;
@@ -1491,6 +1560,39 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     if (!hasAnyGeo) return null;
     return L.latLngBounds(latLngsForBounds);
   }, [hasAnyGeo, latLngsForBounds]);
+
+  /**
+   * Auto-center behavior (requested):
+   * - Trigger ONLY on region changes (including programmatic region changes via focusDeviation).
+   * - Fit to the region's *visible* geometry (which already respects isolate-route when active).
+   * - Avoid running on every refresh tick by freezing bounds for the current region.
+   * - Avoid regressions with modal/overlay stability: do not auto-fit while the route details modal is open.
+   */
+  const prevRegionIdRef = React.useRef("");
+  React.useEffect(() => {
+    if (!selectedRegionId) return;
+
+    const prev = prevRegionIdRef.current;
+    if (prev === selectedRegionId) return;
+
+    prevRegionIdRef.current = selectedRegionId;
+
+    if (!bounds) {
+      setRegionAutoFitBounds(null);
+      return;
+    }
+
+    // If modal is open, keep map stable/obscured. Snapshot is still updated so that once user closes modal
+    // the map does not suddenly re-fit (FitToVisible will have already received the snapshot while modal was open,
+    // but the user couldn't see it; we prefer not to fit behind the overlay).
+    if (isRouteDetailsModalOpen) {
+      setRegionAutoFitBounds(bounds);
+      return;
+    }
+
+    // Snapshot bounds for this region. FitToVisible will run once because the object identity changes.
+    setRegionAutoFitBounds(bounds);
+  }, [selectedRegionId, bounds, isRouteDetailsModalOpen]);
 
   const initialCenter = useMemo(() => {
     // Center on first visible route coordinate, else default US center-ish.
@@ -1716,12 +1818,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                 <label className="mini" style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
                   <input type="checkbox" checked={showLiveTrails} onChange={(e) => setShowLiveTrails(e.target.checked)} />
-                  Live trails
+                  Actual
                 </label>
 
                 <label className="mini" style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
                   <input type="checkbox" checked={showDeviations} onChange={(e) => setShowDeviations(e.target.checked)} />
-                  Deviations
+                  Deviations (red segments)
                 </label>
 
                 <label className="mini" style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
@@ -1742,7 +1844,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 const threshold = Number(selectedRoute?.allowedDeviationMeters ?? DEFAULT_ALLOWED_DEVIATION_METERS) || DEFAULT_ALLOWED_DEVIATION_METERS;
                 return (
                   <>
-                    Deviation threshold: <strong>{threshold}m</strong> (distance from planned route)
+                    Deviation threshold: <strong>{threshold}m</strong> (actual trail distance from planned)
                   </>
                 );
               })()}
@@ -1815,11 +1917,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
               />
 
               <InvalidateSizeOnMountAndResize triggerKey={bounds ? bounds.toBBoxString?.() || "bounds" : "no_bounds"} />
-              {bounds && <FitToVisible bounds={bounds} />}
+              {/* Auto-fit ONLY on region changes (snapshot). Controls still use live `bounds`. */}
+              {regionAutoFitBounds && <FitToVisible bounds={regionAutoFitBounds} />}
               <TrackZoom onZoom={setMapZoom} />
               {bounds && <MapControls bounds={bounds} />}
 
-              {/* Planned routes (blue dashed) + waypoint markers (covered/remaining) + destination marker */}
+              {/* Planned (blue dashed underlay) + markers */}
               {showPlannedRoutes
                 ? activeRoutes.map((r) => {
                     const isSelected = selectedRouteId ? r.id === selectedRouteId : false;
@@ -1830,25 +1933,18 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                     const snapped = snapKey ? snappedByKey?.[snapKey] || osrmCacheRef.current.get(snapKey) : null;
 
                     const rawPlannedPositions = toLatLngs(r.polyline);
-
-                    // Planned route should follow roads too: use OSRM-snapped geometry when available.
-                    // Graceful fallback: if OSRM fails/unavailable, render raw waypoint-to-waypoint polyline.
                     const plannedPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : rawPlannedPositions;
-
                     if (plannedPositions.length < 2) return null;
 
+                    const plannedUnder = plannedRouteUnderlayStyle({ zoom: mapZoom });
                     const plannedStyle = plannedRouteStyle({ zoom: mapZoom });
                     const sel = selectionHighlightStyle({ zoom: mapZoom });
 
                     const { plannedStops, completedStops } = computeWaypointCoverageStatus({ route: r, scopedState });
 
-                    // Marker waypoints: show along the route's raw polyline (this is the "waypoint list" in dummy data).
-                    // Sample to keep performance stable on long polylines.
-                    const markerWaypoints = clampWaypointCountForMarkers(rawPlannedPositions, 60);
+                    // Fewer markers to keep polylines readable.
+                    const markerWaypoints = clampWaypointCountForMarkers(rawPlannedPositions, 18);
                     const totalMarkers = markerWaypoints.length;
-
-                    // Map completion count to markers: if there are N markers, consider first K covered.
-                    // We use plannedStops/completedStops to keep parity with existing completion logic.
                     const markerCoveredCount =
                       plannedStops > 0 && totalMarkers > 0 ? Math.round((Math.min(completedStops, plannedStops) / plannedStops) * totalMarkers) : 0;
 
@@ -1857,6 +1953,13 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                     return (
                       <React.Fragment key={`planned_${r.id}`}>
+                        {/* Underlay (drawn first) */}
+                        <Polyline
+                          positions={plannedPositions}
+                          pathOptions={plannedUnder}
+                          interactive={false}
+                        />
+                        {/* Visible dashed planned route (clickable) */}
                         <Polyline
                           positions={plannedPositions}
                           pathOptions={plannedStyle}
@@ -1864,13 +1967,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             click: () => {
                               onSelectRouteId?.(r.id);
                               setRouteDetailsModalRouteId(r.id);
+                              // Don't force isolate on click; user can toggle isolate in modal.
                             },
                           }}
                         >
                           <Tooltip sticky direction="top" opacity={0.95}>
                             <div style={{ fontWeight: 900 }}>{r.name}</div>
                             <div className="mini">
-                              Planned route: <strong style={{ color: PLANNED_BLUE }}>blue dashed</strong>
+                              Planned: <strong style={{ color: PLANNED_BLUE }}>blue dashed</strong>
                             </div>
                             <div className="mini">
                               Waypoints:{" "}
@@ -1881,15 +1985,15 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             </div>
                             {snapKey ? (
                               <div className="mini">
-                                Routing:{" "}
+                                Planned snapping:{" "}
                                 <strong>
                                   {snapStatus === "pending"
                                     ? "snapping…"
                                     : snapped?.source === "osrm"
-                                      ? "snapped to OSRM"
+                                      ? "OSRM"
                                       : snapStatus === "error"
-                                        ? "fallback (dummy)"
-                                        : "fallback (dummy)"}
+                                        ? "fallback"
+                                        : "fallback"}
                                 </strong>
                               </div>
                             ) : null}
@@ -1903,18 +2007,16 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             <Tooltip direction="top" opacity={0.95}>
                               <div style={{ fontWeight: 900 }}>{r.name}</div>
                               <div className="mini">
-                                Start: <strong style={{ color: WAYPOINT_COVERED }}>First waypoint</strong>
+                                Start marker
                               </div>
                             </Tooltip>
                           </Marker>
                         ) : null}
 
-                        {/* Waypoint dots */}
+                        {/* Waypoint dots (intermediate only) */}
                         {markerWaypoints.map((p, idx) => {
                           const isCovered = idx < markerCoveredCount;
                           const isDestination = idx === markerWaypoints.length - 1;
-
-                          // Destination is rendered with its own icon below; keep dot markers for intermediate points.
                           if (isDestination) return null;
 
                           return (
@@ -1927,10 +2029,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                               <Tooltip direction="top" opacity={0.95}>
                                 <div style={{ fontWeight: 900 }}>{r.name}</div>
                                 <div className="mini">
-                                  Waypoint: <strong>{idx + 1}</strong>
-                                </div>
-                                <div className="mini">
-                                  Status:{" "}
+                                  Waypoint {idx + 1}:{" "}
                                   {isCovered ? (
                                     <strong style={{ color: WAYPOINT_COVERED }}>Covered</strong>
                                   ) : (
@@ -1947,15 +2046,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           <Marker key={`dest_${r.id}`} position={destination} icon={destinationDivIcon} interactive>
                             <Tooltip direction="top" opacity={0.95}>
                               <div style={{ fontWeight: 900 }}>{r.name}</div>
-                              <div className="mini">
-                                Destination: <strong style={{ color: WAYPOINT_DESTINATION }}>Final waypoint</strong>
-                              </div>
-                              <div className="mini">
-                                Covered:{" "}
-                                <strong>
-                                  {Math.min(completedStops, plannedStops)}/{plannedStops || rawPlannedPositions.length}
-                                </strong>
-                              </div>
+                              <div className="mini">Destination marker</div>
                             </Tooltip>
                           </Marker>
                         ) : null}
@@ -1986,49 +2077,77 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                   })
                 : null}
 
-              {/* Live GPS trails (per engineer) — rendered as segmented actual path:
-                  - on-route segments use the existing actual color (LIVE_GREEN)
-                  - off-route segments use solid red (DEVIATION_RED)
-                  NOTE: this keeps “Actual” as the true GPS trail at all times; deviation is just a styling outcome.
+              {/* Actual + Deviations:
+                  - Actual route: solid deep blue, drawn above planned.
+                  - Deviations: red segments ONLY, drawn above actual with a subtle halo.
                */}
               {showLiveTrails
                 ? (activeLocations || []).flatMap((loc) => {
                     const engineerId = loc.engineerId;
                     const live = liveTrailsByEngineerId.get(engineerId);
-                    const segments = live?.segmentedTrail || [];
-                    if (!segments.length) return [];
+                    if (!live?.trailLatLngs || live.trailLatLngs.length < 2) return [];
 
-                    const routeVisible = live.routeId ? visibleRouteIds.has(live.routeId) : true;
-                    const opacity = routeVisible ? 0.98 : 0.35;
+                    // Respect isolate: when isolated, everything is "visible"; otherwise keep low opacity for non-visible routes.
+                    const routeVisible = isolateRouteId ? true : live.routeId ? visibleRouteIds.has(live.routeId) : true;
+                    const baseOpacity = routeVisible ? 0.98 : 0.32;
 
-                    return segments.map((seg, idx) => {
-                      const isDev = Boolean(seg?.isDeviated);
+                    // Compute deviation-only segments (from segmentedTrail where isDeviated=true).
+                    const deviationSegments = (live?.segmentedTrail || []).filter((s) => s?.isDeviated && (s?.positions || []).length >= 2);
 
-                      const style = isDev
-                        ? { ...deviationSegmentStyle({ zoom: mapZoom }), opacity }
-                        : { ...livePathStyle({ zoom: mapZoom, isDeviated: false }), opacity };
+                    const out = [];
 
-                      return (
-                        <Polyline key={`live_${engineerId}_${idx}`} positions={seg.positions} pathOptions={style} interactive={false}>
-                          {/* Attach tooltip to the first segment only to avoid repetitive hover popups */}
-                          {idx === 0 ? (
-                            <Tooltip sticky direction="top" opacity={0.95}>
-                              <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, engineerId)}</div>
-                              <div className="mini">
-                                Actual trail:{" "}
-                                <strong style={{ color: live.isDeviatedNow ? DEVIATION_RED : LIVE_GREEN }}>{live.isDeviatedNow ? "Deviated" : "On route"}</strong>
-                              </div>
-                              <div className="mini">
-                                Route: <strong>{live.routeName || "Unassigned"}</strong>
-                              </div>
-                              <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                                Off-route segments are highlighted in red.
-                              </div>
-                            </Tooltip>
-                          ) : null}
-                        </Polyline>
-                      );
-                    });
+                    // 1) Actual polyline (single, strong)
+                    out.push(
+                      <Polyline
+                        key={`actual_${engineerId}`}
+                        positions={live.trailLatLngs}
+                        pathOptions={{ ...actualRouteStyle({ zoom: mapZoom }), opacity: baseOpacity }}
+                        interactive={false}
+                      >
+                        <Tooltip sticky direction="top" opacity={0.95}>
+                          <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, engineerId)}</div>
+                          <div className="mini">
+                            Actual: <strong style={{ color: ACTUAL_BLUE }}>solid</strong>
+                          </div>
+                          <div className="mini">
+                            Deviations:{" "}
+                            {deviationSegments.length > 0 ? (
+                              <strong style={{ color: DEVIATION_RED }}>present</strong>
+                            ) : (
+                              <strong style={{ color: "var(--ocean-muted)" }}>none</strong>
+                            )}
+                          </div>
+                          <div className="mini">
+                            Route: <strong>{live.routeName || "Unassigned"}</strong>
+                          </div>
+                        </Tooltip>
+                      </Polyline>
+                    );
+
+                    // 2) Deviations on top (halo + red stroke)
+                    if (showDeviations && deviationSegments.length > 0) {
+                      deviationSegments.forEach((seg, idx) => {
+                        const positions = seg.positions || [];
+                        out.push(
+                          <Polyline
+                            key={`dev_halo_${engineerId}_${idx}`}
+                            positions={positions}
+                            pathOptions={{ ...deviationHaloStyle({ zoom: mapZoom }), opacity: Math.min(1, baseOpacity + 0.05) }}
+                            interactive={false}
+                          />
+                        );
+                        out.push(
+                          <Polyline
+                            key={`dev_${engineerId}_${idx}`}
+                            positions={positions}
+                            pathOptions={{ ...deviationSegmentStyle({ zoom: mapZoom }), opacity: Math.min(1, baseOpacity + 0.06) }}
+                            interactive={false}
+                          />
+                        );
+                      });
+                    }
+
+                    return out;
                   })
                 : null}
 
@@ -2064,7 +2183,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         {isDeviatedNow ? (
                           <strong style={{ color: DEVIATION_RED }}>Deviated</strong>
                         ) : (
-                          <strong style={{ color: LIVE_GREEN }}>On route</strong>
+                          <strong style={{ color: "var(--ocean-muted)" }}>On planned</strong>
                         )}
                       </div>
                       <div className="mini">
@@ -2085,12 +2204,21 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
             <Modal
               open={Boolean(routeDetailsModalRouteId && routePopupDetails)}
               title={`Route Details — ${routePopupDetails?.routeName || ""}`}
-              description="Expanded route completion, deviation, and engineer notes."
-              onClose={() => setRouteDetailsModalRouteId("")}
+              description="Planned route, actual trail, and deviation summary."
+              onClose={() => {
+                setRouteDetailsModalRouteId("");
+                setIsolateRouteId("");
+              }}
               maxWidth={1080}
               footer={
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button className="btn btnGhost" onClick={() => setRouteDetailsModalRouteId("")}>
+                  <button
+                    className="btn btnGhost"
+                    onClick={() => {
+                      setRouteDetailsModalRouteId("");
+                      setIsolateRouteId("");
+                    }}
+                  >
                     Close
                   </button>
                 </div>
@@ -2105,6 +2233,33 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       </div>
                       <div id="routeDetailsDesc" className="mini" style={{ marginTop: 4, color: "var(--ocean-muted)" }}>
                         Route ID: <strong>{routePopupDetails.routeId}</strong>
+                      </div>
+
+                      <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                        <label className="mini" style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
+                          <input
+                            type="checkbox"
+                            checked={isolateRouteId === routePopupDetails.routeId}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              const rid = routePopupDetails.routeId;
+
+                              if (on) {
+                                setIsolateRouteId(rid);
+                                setVisibleRouteIds(new Set([rid]));
+                                onSelectRouteId?.(rid);
+                              } else {
+                                setIsolateRouteId("");
+                                // Restore visibility to all routes in region for convenience.
+                                setVisibleRouteIds(new Set((routesInRegion || []).map((x) => x.id)));
+                              }
+                            }}
+                          />
+                          Isolate this route on map
+                        </label>
+                        <span className="mini" style={{ color: "var(--ocean-muted)" }}>
+                          (Useful for demos)
+                        </span>
                       </div>
                     </div>
 
@@ -2243,11 +2398,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           ) : null}
 
                           <div className="mini" style={{ marginTop: 12, color: "var(--ocean-muted)" }}>
-                            Live deviation detection also runs on the frontend (distance-to-route) using a{" "}
+                          Deviations are calculated from the actual GPS trail using a distance-to-planned threshold of{" "}
+                          <strong>
                             {Number((routesInRegion || []).find((x) => x.id === routePopupDetails.routeId)?.allowedDeviationMeters ?? DEFAULT_ALLOWED_DEVIATION_METERS) ||
                               DEFAULT_ALLOWED_DEVIATION_METERS}
-                            m threshold.
-                          </div>
+                            m
+                          </strong>
+                          .
+                        </div>
                         </>
                       ) : (
                         <div className="mini" style={{ marginTop: 10 }}>

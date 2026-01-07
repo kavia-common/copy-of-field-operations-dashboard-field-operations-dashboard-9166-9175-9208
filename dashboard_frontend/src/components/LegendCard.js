@@ -109,31 +109,31 @@ export default function LegendCard() {
         <hr className="hr" style={{ margin: "10px 0" }} />
 
         <div className="legendSection">
-          <div className="legendSectionTitle">Paths</div>
+          <div className="legendSectionTitle">Paths (map)</div>
           <div className="legendList">
             <div className="legendRow">
               <span style={line("#2563EB", { dashed: true })} />
               <span className="mini">
-                Planned route: <strong style={{ color: "#2563EB" }}>blue dashed</strong>
+                Planned: <strong style={{ color: "#2563EB" }}>blue dashed (soft underlay)</strong>
               </span>
             </div>
 
             <div className="legendRow">
-              <span style={line("#059669")} />
+              <span style={line("#1E3A8A")} />
               <span className="mini">
-                Actual (on-route): <strong style={{ color: "#059669" }}>blue/green (configured)</strong>
+                Actual: <strong style={{ color: "#1E3A8A" }}>solid deep blue</strong>
               </span>
             </div>
 
             <div className="legendRow">
               <span style={line("#DC2626")} />
               <span className="mini">
-                Off-route / deviation: <strong style={{ color: "var(--ocean-error)" }}>red</strong>
+                Deviations: <strong style={{ color: "var(--ocean-error)" }}>red segments (on top)</strong>
               </span>
             </div>
 
             <div className="mini" style={{ marginTop: 6, color: "var(--ocean-muted)" }}>
-              Fill = Status (Completed/In Progress/Not Started) · Stroke = Actual path & deviations.
+              The map prioritizes Planned vs Actual vs Deviations. Status fill is informational and kept separate to avoid clutter.
             </div>
           </div>
         </div>
@@ -164,9 +164,7 @@ export default function LegendCard() {
           </div>
         </div>
 
-        <div className="mini" style={{ marginTop: 10, color: "var(--ocean-muted)" }}>
-          The legend is outside the map to avoid interfering with Leaflet controls and to keep modal/toast z-index layering unchanged.
-        </div>
+
       </div>
     </aside>
   );

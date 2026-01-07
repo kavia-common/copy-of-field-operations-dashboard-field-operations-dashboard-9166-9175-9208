@@ -391,9 +391,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           </button>
         </div>
 
-        <div className="mini" style={{ marginTop: 10 }}>
-          This section is separate from Exceptions and Route Completion; it is built from compliance detection (dummy GPS breadcrumbs).
-        </div>
+
       </section>
 
       {/* Route Completion details modal */}
