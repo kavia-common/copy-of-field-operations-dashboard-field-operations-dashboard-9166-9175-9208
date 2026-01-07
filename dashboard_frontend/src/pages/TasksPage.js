@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Roles, Statuses, statusMeta } from "../data/dummyData";
+import { clampPageIndex, paginateRows, sortRows } from "../utils/tableTools";
 
 function regionName(state, regionId) {
   return state.regions.find((r) => r.id === regionId)?.name || "—";
@@ -93,6 +94,16 @@ function buildEngineerCommentsForTask(scopedState, task) {
   return deduped.join(" · ");
 }
 
+function nextSortOrder(currentKey, currentOrder, clickedKey) {
+  if (currentKey !== clickedKey) return "asc";
+  return currentOrder === "asc" ? "desc" : "asc";
+}
+
+function sortIndicator(active, order) {
+  if (!active) return null;
+  return order === "asc" ? " ▲" : " ▼";
+}
+
 // PUBLIC_INTERFACE
 export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
   /**
@@ -100,33 +111,84 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
    * - Status and comments are read-only (no update actions from this page).
    * - No "Details" action/button in the task list.
    * - Engineer comments column remains visible and functional.
+   *
+   * Table enhancements:
+   * - Filter -> Sort -> Paginate pipeline
+   * - Clickable sortable headers + pagination controls
    */
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
+
+  const [sortKey, setSortKey] = useState("dueDate");
+  const [sortOrder, setSortOrder] = useState("asc");
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
 
   const selectedTask = useMemo(
     () => scopedState.tasks.find((t) => t.id === selectedTaskId) || null,
     [scopedState.tasks, selectedTaskId]
   );
 
-  const rows = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const qLower = q.trim().toLowerCase();
-    return scopedState.tasks
-      .filter((t) => {
-        if (routeFilterId && t.routeId !== routeFilterId) return false;
-        if (statusFilter && t.status !== statusFilter) return false;
-        if (!qLower) return true;
-        return (
-          t.title.toLowerCase().includes(qLower) ||
-          t.id.toLowerCase().includes(qLower) ||
-          engineerName(scopedState, t.engineerId).toLowerCase().includes(qLower) ||
-          regionName(scopedState, t.regionId).toLowerCase().includes(qLower) ||
-          routeName(scopedState, t.routeId).toLowerCase().includes(qLower)
-        );
-      })
-      .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+    return scopedState.tasks.filter((t) => {
+      if (routeFilterId && t.routeId !== routeFilterId) return false;
+      if (statusFilter && t.status !== statusFilter) return false;
+      if (!qLower) return true;
+      return (
+        t.title.toLowerCase().includes(qLower) ||
+        t.id.toLowerCase().includes(qLower) ||
+        engineerName(scopedState, t.engineerId).toLowerCase().includes(qLower) ||
+        regionName(scopedState, t.regionId).toLowerCase().includes(qLower) ||
+        routeName(scopedState, t.routeId).toLowerCase().includes(qLower)
+      );
+    });
   }, [q, statusFilter, scopedState, routeFilterId]);
+
+  const sortedRows = useMemo(() => {
+    return sortRows(filteredRows, {
+      sortKey,
+      sortOrder,
+      accessor: (t, key) => {
+        switch (key) {
+          case "title":
+            return t.title;
+          case "engineer":
+            return engineerName(scopedState, t.engineerId);
+          case "region":
+            return regionName(scopedState, t.regionId);
+          case "route":
+            return routeName(scopedState, t.routeId);
+          case "dueDate":
+            return t.dueDate;
+          case "nextDueDate":
+            return t.nextDueDate;
+          case "rescheduledDate":
+            return t.rescheduledDate;
+          case "status":
+            return statusMeta[t.status]?.label || t.status;
+          default:
+            return "";
+        }
+      },
+    });
+  }, [filteredRows, sortKey, sortOrder, scopedState]);
+
+  const pagination = useMemo(() => paginateRows(sortedRows, { pageIndex, pageSize }), [sortedRows, pageIndex, pageSize]);
+  const effectivePageIndex = useMemo(
+    () => clampPageIndex(pageIndex, pagination.totalPages),
+    [pageIndex, pagination.totalPages]
+  );
+
+  const pageRows = useMemo(() => {
+    // If filters change and total pages shrink, use clamped index.
+    if (effectivePageIndex !== pageIndex) {
+      // Avoid setState inside render: just slice for the clamped view.
+      return paginateRows(sortedRows, { pageIndex: effectivePageIndex, pageSize }).pageRows;
+    }
+    return pagination.pageRows;
+  }, [effectivePageIndex, pageIndex, pageSize, pagination.pageRows, sortedRows]);
 
   const historyForSelected = useMemo(() => {
     if (!selectedTask) return [];
@@ -145,6 +207,28 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
       ? "You can view tasks within your region. Statuses are read-only on this page."
       : "You can view all tasks across regions. Statuses are read-only on this page.";
 
+  function onHeaderSort(clickedKey) {
+    setSortOrder((prevOrder) => nextSortOrder(sortKey, prevOrder, clickedKey));
+    setSortKey(clickedKey);
+    setPageIndex(0); // sorting change should reset to first page
+  }
+
+  function headerButton(label, key) {
+    const active = sortKey === key;
+    return (
+      <button
+        type="button"
+        className="tableHeaderBtn"
+        onClick={() => onHeaderSort(key)}
+        aria-label={`Sort by ${label}${active ? ` (${sortOrder})` : ""}`}
+      >
+        <span>{label}</span>
+        <span className="srOnly">{active ? `Sorted ${sortOrder}` : "Not sorted"}</span>
+        <span aria-hidden="true">{sortIndicator(active, sortOrder)}</span>
+      </button>
+    );
+  }
+
   return (
     <div className="content">
       <div className="card">
@@ -153,7 +237,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
             <h2>Tasks</h2>
             <p>Filtering, per-role visibility, and status tracking</p>
           </div>
-          <span className="badge">{rows.length} visible</span>
+          <span className="badge">{pagination.totalRows} visible</span>
         </div>
 
         <div className="splitRow" style={{ marginBottom: 10 }}>
@@ -170,12 +254,25 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
         <div className="filters" style={{ marginBottom: 12, marginTop: 12 }}>
           <label className="input">
             <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Search</span>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Task, engineer, region, route..." />
+            <input
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPageIndex(0);
+              }}
+              placeholder="Task, engineer, region, route..."
+            />
           </label>
 
           <label className="input">
             <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Status</span>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPageIndex(0);
+              }}
+            >
               <option value="">All</option>
               <option value={Statuses.ASSIGNED}>Assigned</option>
               <option value={Statuses.IN_PROGRESS}>In Progress</option>
@@ -188,23 +285,84 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
           </label>
         </div>
 
+        <div className="tableToolbar">
+          <div className="mini">
+            Sorted by <strong>{sortKey}</strong> ({sortOrder}) · Page <strong>{effectivePageIndex + 1}</strong> of{" "}
+            <strong>{pagination.totalPages}</strong>
+          </div>
+
+          <div className="paginationControls">
+            <label className="input" style={{ minWidth: 160 }}>
+              <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Rows</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value) || 10);
+                  setPageIndex(0);
+                }}
+              >
+                {[5, 10, 20, 50].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                type="button"
+                className="btn btnGhost"
+                onClick={() => setPageIndex(0)}
+                disabled={effectivePageIndex === 0}
+              >
+                First
+              </button>
+              <button
+                type="button"
+                className="btn btnGhost"
+                onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
+                disabled={effectivePageIndex === 0}
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                className="btn btnGhost"
+                onClick={() => setPageIndex((p) => Math.min(pagination.totalPages - 1, p + 1))}
+                disabled={effectivePageIndex >= pagination.totalPages - 1}
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                className="btn btnGhost"
+                onClick={() => setPageIndex(pagination.totalPages - 1)}
+                disabled={effectivePageIndex >= pagination.totalPages - 1}
+              >
+                Last
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="tableWrap" style={{ marginTop: 12 }}>
           <table className="table" aria-label="Task list">
             <thead>
               <tr>
-                <th>Task</th>
-                <th>Engineer</th>
-                <th>Region</th>
-                <th>Route</th>
-                <th>Due</th>
-                <th>Next Due Date</th>
-                <th>Rescheduled Date</th>
-                <th>Status</th>
+                <th>{headerButton("Task", "title")}</th>
+                <th>{headerButton("Engineer", "engineer")}</th>
+                <th>{headerButton("Region", "region")}</th>
+                <th>{headerButton("Route", "route")}</th>
+                <th>{headerButton("Due", "dueDate")}</th>
+                <th>{headerButton("Next Due Date", "nextDueDate")}</th>
+                <th>{headerButton("Rescheduled Date", "rescheduledDate")}</th>
+                <th>{headerButton("Status", "status")}</th>
                 <th>Engineer comments</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => {
+              {pageRows.map((t) => {
                 const meta = statusMeta[t.status] || { label: t.status, tone: "neutral" };
                 const badgeClass = toneToBadgeClass(meta.tone);
                 const comments = buildEngineerCommentsForTask(scopedState, t);
@@ -254,7 +412,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                   </tr>
                 );
               })}
-              {rows.length === 0 && (
+              {pageRows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="mini">
                     No tasks match your filters.

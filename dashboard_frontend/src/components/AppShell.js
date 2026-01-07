@@ -1,5 +1,7 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faDigging } from "@fortawesome/free-solid-svg-icons";
 import { Roles } from "../data/dummyData";
 
 function navItemClass({ isActive }) {
@@ -17,7 +19,9 @@ export default function AppShell({ currentUser, onLogout, children }) {
     <div className="appShell">
       <aside className="sidebar" aria-label="Sidebar navigation">
         <div className="brand">
-          <div className="brandMark" />
+          <div className="brandMark" aria-label="Field Ops" title="Field Ops">
+            <FontAwesomeIcon icon={faDigging} className="brandIcon" aria-hidden="true" />
+          </div>
           <div className="brandTitle">
             <strong>Field Ops</strong>
             <span>Dashboard</span>
