@@ -120,7 +120,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
 
-  const [sortKey, setSortKey] = useState("dueDate");
+  const [sortKey, setSortKey] = useState("startDate");
   const [sortOrder, setSortOrder] = useState("asc");
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
@@ -160,10 +160,14 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
             return regionName(scopedState, t.regionId);
           case "route":
             return routeName(scopedState, t.routeId);
+          case "startDate":
+            // 02.02: assignments now have start_date (day-level string or ISO). UI binds Start Date -> assignment.start_date.
+            return t.start_date;
+
           case "dueDate":
+            // Tasks still use dueDate (for assignment due / task due display).
             return t.dueDate;
-          case "nextDueDate":
-            return t.nextDueDate;
+
           case "rescheduledDate":
             return t.rescheduledDate;
           case "status":
@@ -354,8 +358,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                 <th>{headerButton("Engineer", "engineer")}</th>
                 <th>{headerButton("Region", "region")}</th>
                 <th>{headerButton("Route", "route")}</th>
+                <th>{headerButton("Start Date", "startDate")}</th>
                 <th>{headerButton("Due", "dueDate")}</th>
-                <th>{headerButton("Next Due Date", "nextDueDate")}</th>
                 <th>{headerButton("Rescheduled Date", "rescheduledDate")}</th>
                 <th>{headerButton("Status", "status")}</th>
                 <th>Engineer comments</th>
@@ -381,8 +385,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                     <td>{engineerName(scopedState, t.engineerId)}</td>
                     <td>{regionName(scopedState, t.regionId)}</td>
                     <td>{routeName(scopedState, t.routeId)}</td>
+                    <td>{t.start_date ? formatDateShortLocal(t.start_date) : "—"}</td>
                     <td>{t.dueDate ? formatDateShortLocal(t.dueDate) : "—"}</td>
-                    <td>{t.nextDueDate ? formatDateShortLocal(t.nextDueDate) : "—"}</td>
                     <td>{t.rescheduledDate ? formatDateShortLocal(t.rescheduledDate) : "—"}</td>
                     <td>
                       <span className={badgeClass}>{meta.label}</span>
@@ -400,7 +404,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                         </div>
                       )}
                     </td>
-                    <td style={{ maxWidth: 380 }}>
+                    <td style={{ maxWidth: 320 }}>
                       {comments ? (
                         <div className="mini" style={{ lineHeight: 1.25 }}>
                           {comments}

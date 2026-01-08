@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { selectTaskCountsByStatus } from "../state/domainStore";
+import { selectAssignmentOutcomeCountsForToday } from "../state/domainStore";
 
 function pct(n) {
   return `${Math.round(Number(n || 0))}%`;
@@ -24,22 +24,22 @@ export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) 
   /**
    * Dashboard "Assignments" KPI card (uniform-height).
    *
-   * Required KPIs:
-   *  - Completed
-   *  - Rejected
-   *  - Redo
-   *  - Total badge retained
-   *
-   * Additional compact data:
-   *  - Completion rate (completed / total) helper subtext.
-   *
-   * Drill-down trigger renamed to "Show details" and delegated to parent via onShowDetails.
+   * 03.01 update:
+   * - KPIs are now assignment-table-driven for "today":
+   *     include assignments where start_date OR due_date === today
+   *   and compute completed/rejected/redo from tasks belonging to those assignments.
    */
-  const counts = useMemo(() => selectTaskCountsByStatus(scopedState, { dateIso }), [scopedState, dateIso]);
+  const counts = useMemo(
+    () => selectAssignmentOutcomeCountsForToday(scopedState, { dateIso }),
+    [scopedState, dateIso]
+  );
   const tone = tasksTone(counts);
 
-  const totalTasks = Number(counts.completed || 0) + Number(counts.rejected || 0) + Number(counts.redo || 0);
-  const completionRate = totalTasks ? (Number(counts.completed || 0) / totalTasks) * 100 : 0;
+  // “Total” should match the Assignments table row count for today scope.
+  const plannedAssignments = Number(counts.plannedAssignments || 0);
+
+  // Completion rate is displayed relative to planned assignments (table count).
+  const completionRate = plannedAssignments ? (Number(counts.completed || 0) / plannedAssignments) * 100 : 0;
 
   return (
     <div className="card kpiCardFixed" aria-label="Assignments KPI card">
@@ -49,8 +49,8 @@ export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) 
           <p>Today&apos;s outcomes ({counts.date})</p>
         </div>
 
-        <span className={toneToBadgeClass(tone)} aria-label="Total assignments due today in current scope">
-          Total: <strong>{totalTasks}</strong>
+        <span className={toneToBadgeClass(tone)} aria-label="Planned assignments in scope today (assignment table)">
+          Planned: <strong>{plannedAssignments}</strong>
         </span>
       </div>
 
@@ -82,7 +82,7 @@ export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) 
         <hr className="hr" />
 
         <div className="mini">
-          Totals reflect assignments <strong>due today</strong>.
+          Totals reflect assignments with <strong>start date</strong> or <strong>due date</strong> equal to today.
         </div>
       </div>
 

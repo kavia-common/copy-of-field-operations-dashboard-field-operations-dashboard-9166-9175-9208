@@ -247,7 +247,7 @@ export function createLruCache(maxEntries = 100) {
 
     /** Current size (debugging/diagnostics). */
     size() {
-      return map.size();
+      return map.size;
     },
   };
 }
@@ -272,6 +272,53 @@ function getDefaultState() {
   };
 }
 
+// ---------------------------
+// Assignment date helpers (02.02)
+// ---------------------------
+
+function datePrefixFromIso(dateIso) {
+  return (dateIso || nowIso()).slice(0, 10);
+}
+
+function isoDayToEpoch(day) {
+  // Interpret YYYY-MM-DD as UTC midnight for stable comparisons.
+  const d = new Date(`${day}T00:00:00Z`);
+  const t = d.getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+
+function safeDay(val) {
+  // Accept full ISO or day strings; normalize to YYYY-MM-DD or "".
+  const s = String(val || "").trim();
+  if (!s) return "";
+  // ISO
+  if (s.length >= 10) return s.slice(0, 10);
+  return s;
+}
+
+function isAssignmentActiveOnDay(assignment, day) {
+  const d = safeDay(day);
+  if (!d) return false;
+
+  const start = safeDay(assignment?.start_date);
+  const due = safeDay(assignment?.due_date);
+
+  // If missing dates, treat as always active (back-compat with older localStorage data that only had engineerId/routeId).
+  if (!start && !due) return true;
+
+  const dayMs = isoDayToEpoch(d);
+  const startMs = start ? isoDayToEpoch(start) : NaN;
+  const dueMs = due ? isoDayToEpoch(due) : NaN;
+
+  if (!Number.isFinite(dayMs)) return false;
+
+  // Open-ended ranges if one side is missing.
+  const afterStart = !Number.isFinite(startMs) ? true : dayMs >= startMs;
+  const beforeDue = !Number.isFinite(dueMs) ? true : dayMs <= dueMs;
+
+  return afterStart && beforeDue;
+}
+
 // PUBLIC_INTERFACE
 export function loadDomainState() {
   /** Loads domain state from localStorage (or initializes with default sample data). */
@@ -289,6 +336,21 @@ export function loadDomainState() {
     next.engineerAssignments = Array.isArray(next.engineerAssignments) ? next.engineerAssignments : [];
     next.statusHistory = Array.isArray(next.statusHistory) ? next.statusHistory : [];
     next.routeChangePulse = next.routeChangePulse || null;
+
+    // 02.02 migration: ensure assignments have start_date and due_date (remove any "next due date" concept for assignments).
+    // Back-compat behavior:
+    // - if only routeId/engineerId exist, set a "today" window so it shows up in day-scoped metrics.
+    const today = datePrefixFromIso(nowIso());
+    next.engineerAssignments = (next.engineerAssignments || []).map((a) => {
+      const start = safeDay(a?.start_date);
+      const due = safeDay(a?.due_date);
+      // Preserve any additional fields, but normalize the date fields.
+      return {
+        ...a,
+        start_date: start || today,
+        due_date: due || today,
+      };
+    });
 
     next.tasks = (next.tasks || []).map((t) => ({
       ...t,
@@ -521,10 +583,6 @@ export function computeMetrics(scopedState) {
   };
 }
 
-function datePrefixFromIso(dateIso) {
-  return (dateIso || nowIso()).slice(0, 10);
-}
-
 // PUBLIC_INTERFACE
 export function computeRouteCompletionSummary(scopedState, { dateIso } = {}) {
   /** Computes overall route completion + a per-route list ordered by most remaining stops. */
@@ -631,6 +689,10 @@ export function selectTaskCountsByStatus(scopedState, { dateIso } = {}) {
    * Computes date-scoped task counts using the canonical Statuses definitions.
    * This is intended to keep KPI cards consistent across the app.
    *
+   * IMPORTANT:
+   * This selector remains "task due-date scoped" (dueDate == date) and is still used
+   * by task-specific views (tables, task drill-downs).
+   *
    * Counts returned:
    *  - completed: status === COMPLETED
    *  - rejected: status === REJECTED
@@ -647,6 +709,95 @@ export function selectTaskCountsByStatus(scopedState, { dateIso } = {}) {
     completed,
     rejected,
     redo,
+  };
+}
+
+/**
+ * --------------- Assignment-today outcomes (03.01 / 02.03 finalize) ---------------
+ *
+ * Canonical definition for “today-scoped assignments table”:
+ * - Include assignment rows where:
+ *     start_date === today OR due_date === today
+ *
+ * KPIs and exports that must match the Assignments table “Today” filter MUST use this definition.
+ *
+ * NOTE:
+ * We intentionally do NOT use task.dueDate for these “assignment table driven” KPIs because
+ * task due dates can diverge from assignment windows.
+ */
+
+function assignmentPairKey(engineerId, routeId) {
+  return `${engineerId || ""}::${routeId || ""}`;
+}
+
+// PUBLIC_INTERFACE
+export function selectAssignmentsToday(scopedState, { dateIso } = {}) {
+  /**
+   * Returns engineerAssignments filtered exactly like the Assignments table “Today” scope:
+   * - start_date === today OR due_date === today
+   *
+   * Also returns normalized meta about the filter.
+   */
+  const date = datePrefixFromIso(dateIso);
+  const assignments = scopedState?.engineerAssignments || [];
+
+  const isEq = (a, b) => safeDay(a) && safeDay(b) && safeDay(a) === safeDay(b);
+
+  const assignmentsToday = assignments.filter((a) => {
+    const start = safeDay(a?.start_date);
+    const due = safeDay(a?.due_date);
+    return isEq(start, date) || isEq(due, date);
+  });
+
+  return { date, assignments: assignmentsToday };
+}
+
+// PUBLIC_INTERFACE
+export function selectTasksForAssignments(scopedState, assignments) {
+  /**
+   * Returns tasks that “belong to” the given assignments list.
+   *
+   * Belonging definition (current data model):
+   * - task.engineerId + task.routeId matches assignment.engineerId + assignment.routeId.
+   *
+   * This keeps DPR Snapshot and Assignments KPIs aligned with assignment rows.
+   */
+  const tasks = scopedState?.tasks || [];
+  const pairs = new Set((assignments || []).map((a) => assignmentPairKey(a.engineerId, a.routeId)));
+  return tasks.filter((t) => pairs.has(assignmentPairKey(t.engineerId, t.routeId)));
+}
+
+// PUBLIC_INTERFACE
+export function selectAssignmentOutcomeCountsForToday(scopedState, { dateIso } = {}) {
+  /**
+   * Returns assignment-driven outcome KPIs for today:
+   * - plannedAssignments: number of assignment rows in scope today (table-aligned)
+   * - completed/rejected/redo/onHold/postponed: counted from tasks belonging to those assignments
+   *
+   * Note: totalOutcomes is NOT the same as plannedAssignments; totalOutcomes is status-count totals.
+   */
+  const { date, assignments } = selectAssignmentsToday(scopedState, { dateIso });
+  const inScopeTasks = selectTasksForAssignments(scopedState, assignments);
+
+  const completed = inScopeTasks.filter((t) => t.status === Statuses.COMPLETED).length;
+  const rejected = inScopeTasks.filter((t) => t.status === Statuses.REJECTED).length;
+  const redo = inScopeTasks.filter((t) => t.status === Statuses.REDO).length;
+  const onHold = inScopeTasks.filter((t) => t.status === Statuses.ON_HOLD).length;
+  const postponed = inScopeTasks.filter((t) => t.status === Statuses.POSTPONED).length;
+
+  return {
+    date,
+    plannedAssignments: assignments.length,
+    completed,
+    rejected,
+    redo,
+    onHold,
+    postponed,
+    totalOutcomes: completed + rejected + redo + onHold + postponed,
+    meta: {
+      assignmentsInScope: assignments.length,
+      tasksInScope: inScopeTasks.length,
+    },
   };
 }
 
@@ -760,6 +911,7 @@ export function computeRouteCompletionWithExceptionsSummary(scopedState, { dateI
 
 //
 //
+//
 // Route Completion-only selector (separated from exceptions/compliance).
 //
 
@@ -818,18 +970,30 @@ export function computeRouteCompletionOnlySummary(scopedState, { dateIso } = {})
 
 // PUBLIC_INTERFACE
 export function computeDprSnapshot(state, user, { dateIso } = {}) {
-  /** Small KPI subset for dashboard DPR card (planned vs completed, on-hold, postponed). */
-  const date = datePrefixFromIso(dateIso);
+  /**
+   * Daily Progress Report snapshot (dashboard KPI card).
+   *
+   * 02.03 finalize:
+   * - MUST exactly match the Assignments table “Today” scope:
+   *     start_date === today OR due_date === today
+   * - planned: number of assignment rows in that scope
+   * - completed/rejected/redo/onHold/postponed: derived from tasks that belong to those assignments
+   *   (engineerId + routeId match), regardless of task.dueDate.
+   */
   const scoped = getScopedDomain(state, user) || state;
 
-  const tasksToday = (scoped.tasks || []).filter((t) => (t.dueDate || "").slice(0, 10) === date);
+  const counts = selectAssignmentOutcomeCountsForToday(scoped, { dateIso });
 
-  const planned = tasksToday.length;
-  const completed = tasksToday.filter((t) => t.status === Statuses.COMPLETED).length;
-  const onHold = tasksToday.filter((t) => t.status === Statuses.ON_HOLD).length;
-  const postponed = tasksToday.filter((t) => t.status === Statuses.POSTPONED).length;
-
-  return { date, planned, completed, onHold, postponed };
+  return {
+    date: counts.date,
+    planned: counts.plannedAssignments,
+    completed: counts.completed,
+    rejected: counts.rejected,
+    redo: counts.redo,
+    onHold: counts.onHold,
+    postponed: counts.postponed,
+    meta: counts.meta,
+  };
 }
 
 function safeReadJsonLocalStorage(key) {
@@ -1060,18 +1224,18 @@ export function computeEngineerAllocationSummary(
 // PUBLIC_INTERFACE
 export function selectEngineerAllocationCounts(scopedState, { dateIso = "" } = {}) {
   /**
-   * Simplified selector for Engineer Allocation card.
+   * Simplified selector for Engineer Allocation card + allocation UI filters.
    *
    * Returns:
    *  - totalEngineers: number of field engineers in scope
-   *  - activeCount: on-duty/online engineers (best-effort)
-   *  - inactiveCount: off-duty/offline engineers (best-effort)
+   *  - activeCount: engineers that are ONLINE and ASSIGNED to a route
+   *  - idleCount: engineers that are ONLINE but UNASSIGNED (idle capacity)
+   *  - inactiveCount: engineers that are OFFLINE (no valid live location)
    *
-   * Implementation notes (sample data):
-   *  - If engineerLiveLocations has an entry for an engineer with valid lat/lng -> treat as "online".
-   *  - If there is an explicit on-duty flag on the user record -> treat as active.
-   *  - If assigned to a route OR has a task due on the selected date -> treat as active.
-   *  - Otherwise inactive.
+   * Rationale (02.04):
+   * - "Idle vs Active" should be derived from live locations + assignments (real-time),
+   *   so dummy refresh ticks and assignment edits immediately update allocation metrics.
+   * - Tasks due today are NOT used to determine active/idle here; assignment+online is the driver.
    */
   const date = datePrefixFromIso(dateIso);
   const engineers = (scopedState?.users || []).filter((u) => u.role === "Field Engineer");
@@ -1079,8 +1243,6 @@ export function selectEngineerAllocationCounts(scopedState, { dateIso = "" } = {
 
   const assignments = scopedState?.engineerAssignments || [];
   const assignedEngineerIds = new Set(assignments.map((a) => a.engineerId));
-
-  const tasksToday = (scopedState?.tasks || []).filter((t) => (t.dueDate || "").slice(0, 10) === date);
 
   const locations = scopedState?.engineerLiveLocations || [];
   const locByEngineerId = new Map(locations.map((l) => [l.engineerId, l]));
@@ -1092,26 +1254,29 @@ export function selectEngineerAllocationCounts(scopedState, { dateIso = "" } = {
   };
 
   let activeCount = 0;
+  let idleCount = 0;
+  let inactiveCount = 0;
 
   engineers.forEach((e) => {
-    const explicit =
-      e.isOnDuty === true ||
-      e.onDuty === true ||
-      String(e.shiftStatus || "").toLowerCase() === "on_duty" ||
-      String(e.shiftStatus || "").toLowerCase() === "on duty";
+    const online = isOnline(e.id);
+    const assigned = assignedEngineerIds.has(e.id);
 
-    const hasAssignment = assignedEngineerIds.has(e.id);
-    const hasTasksToday = tasksToday.some((t) => t.engineerId === e.id);
+    if (!online) {
+      inactiveCount += 1;
+      return;
+    }
 
-    // "Active should represent on-duty/online engineers"
-    const active = explicit || isOnline(e.id) || hasAssignment || hasTasksToday;
-
-    if (active) activeCount += 1;
+    if (assigned) activeCount += 1;
+    else idleCount += 1;
   });
 
-  const inactiveCount = Math.max(0, totalEngineers - activeCount);
+  // Guard: keep totals consistent even if data is messy.
+  const sum = activeCount + idleCount + inactiveCount;
+  if (sum !== totalEngineers) {
+    inactiveCount = Math.max(0, totalEngineers - (activeCount + idleCount));
+  }
 
-  return { totalEngineers, activeCount, inactiveCount, date };
+  return { totalEngineers, activeCount, idleCount, inactiveCount, date };
 }
 
 // PUBLIC_INTERFACE
@@ -1297,7 +1462,10 @@ export function selectRouteCommentsForDate(scopedState, { routeId, dateIso } = {
   });
 
   // Sort: most recent timestamps first; then stable by id.
-  deduped.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")) || String(a.id).localeCompare(String(b.id)));
+  deduped.sort(
+    (a, b) =>
+      String(b.timestamp || "").localeCompare(String(a.timestamp || "")) || String(a.id).localeCompare(String(b.id))
+  );
 
   return deduped;
 }
@@ -1383,14 +1551,16 @@ function titleCaseRule(rule) {
  *  - engineerIds involved
  *  - timeHints[] extracted from meta fields when present (idle windows, start/end breaches, etc.)
  */
- // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 export function selectDeviationDetailsForRoute(scopedState, complianceSnapshot, { routeId, dateIso } = {}) {
   /** Builds aggregated deviation details for a route (counts, worst severity, rule breakdown, time hints). */
   const rid = routeId || "";
   if (!rid) return null;
 
   const day = (dateIso || complianceSnapshot?.date || new Date().toISOString()).slice(0, 10);
-  const flags = (complianceSnapshot?.flags || []).filter((f) => f?.routeId === rid && String(f?.date || "").slice(0, 10) === day);
+  const flags = (complianceSnapshot?.flags || []).filter(
+    (f) => f?.routeId === rid && String(f?.date || "").slice(0, 10) === day
+  );
 
   if (!flags.length) {
     return {
@@ -1424,7 +1594,10 @@ export function selectDeviationDetailsForRoute(scopedState, complianceSnapshot, 
   });
 
   const byRule = Array.from(byRuleMap.values()).sort(
-    (a, b) => severityRank(b.worstSeverity) - severityRank(a.worstSeverity) || b.count - a.count || a.ruleLabel.localeCompare(b.ruleLabel)
+    (a, b) =>
+      severityRank(b.worstSeverity) - severityRank(a.worstSeverity) ||
+      b.count - a.count ||
+      a.ruleLabel.localeCompare(b.ruleLabel)
   );
 
   // Extract compact time hints from meta if available.
@@ -1503,11 +1676,42 @@ export function selectEngineerIdsForRoute(stateOrScopedState, routeId) {
 
 /**
  * PUBLIC_INTERFACE
+ * Select assignments active on a date based on [start_date, due_date].
+ */
+// PUBLIC_INTERFACE
+export function selectAssignmentsActiveOnDate(scopedState, { dateIso } = {}) {
+  /** Returns engineerAssignments active on the specified date (inclusive window). */
+  const date = datePrefixFromIso(dateIso);
+  const assignments = scopedState?.engineerAssignments || [];
+  return assignments.filter((a) => isAssignmentActiveOnDay(a, date));
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Computes assignment counts for a date window, used by plotting/metrics.
+ *
+ * Returns:
+ * - date
+ * - activeCount: number of assignments active on date (start_date <= date <= due_date)
+ */
+// PUBLIC_INTERFACE
+export function selectAssignmentCountsForDate(scopedState, { dateIso } = {}) {
+  /** Counts route assignments active on a given date, based on [start_date, due_date]. */
+  const date = datePrefixFromIso(dateIso);
+  const activeCount = selectAssignmentsActiveOnDate(scopedState, { dateIso: date }).length;
+  return { date, activeCount };
+}
+
+/**
+ * PUBLIC_INTERFACE
  * Assigns an engineer to a route, persisting the update.
  *
  * Behavior:
  * - One active route per engineer (replaces previous).
  * - Returns { ok, state, changedRouteIds } so callers can trigger map highlight/refresh.
+ *
+ * 02.02:
+ * - When creating a new assignment, set start_date and due_date to "today" if not provided.
  */
 // PUBLIC_INTERFACE
 export function assignRouteToEngineer(state, { engineerId, routeId }) {
@@ -1528,7 +1732,14 @@ export function assignRouteToEngineer(state, { engineerId, routeId }) {
 
   // Remove any existing assignment(s) for that engineer (keep simple: 1 active route).
   next.engineerAssignments = next.engineerAssignments.filter((a) => a.engineerId !== engineerId);
-  next.engineerAssignments.push({ engineerId, routeId });
+
+  const today = datePrefixFromIso(nowIso());
+  next.engineerAssignments.push({
+    engineerId,
+    routeId,
+    start_date: today,
+    due_date: today,
+  });
 
   const changedRouteIds = [prevRouteId, routeId].filter(Boolean);
 
@@ -1597,6 +1808,9 @@ export function allocateEngineerToRoute(state, { engineerId, routeId }) {
  * - Engineers in engineerIds will be assigned to routeId (replacing any existing assignment).
  * - Engineers not in engineerIds but currently assigned to routeId will be unassigned (when mode === "replace").
  * - Always triggers a routeChangePulse when any assignment changes so MapPanel highlights and refreshes OSRM cache.
+ *
+ * 02.02:
+ * - Newly created assignments get start_date/due_date = today by default (since this modal doesn't collect dates yet).
  */
 export function setEngineersForRoute(state, { routeId, engineerIds = [], mode = "replace" } = {}) {
   /** Bulk assignment helper for the Routes Config page. */
@@ -1618,8 +1832,6 @@ export function setEngineersForRoute(state, { routeId, engineerIds = [], mode = 
     return true;
   });
 
-  const currentOnThisRoute = new Set(next.engineerAssignments.filter((a) => a.routeId === routeId).map((a) => a.engineerId));
-
   // 1) Replace mode: unassign anyone currently on this route but not desired
   if (mode === "replace") {
     next.engineerAssignments = next.engineerAssignments.filter((a) => {
@@ -1630,6 +1842,8 @@ export function setEngineersForRoute(state, { routeId, engineerIds = [], mode = 
     });
   }
 
+  const today = datePrefixFromIso(nowIso());
+
   // 2) Ensure desired engineers point to this route
   desired.forEach((engineerId) => {
     const prev = next.engineerAssignments.find((a) => a.engineerId === engineerId);
@@ -1638,7 +1852,7 @@ export function setEngineersForRoute(state, { routeId, engineerIds = [], mode = 
     if (prevRouteId !== routeId) {
       // Replace assignment for that engineer
       next.engineerAssignments = next.engineerAssignments.filter((a) => a.engineerId !== engineerId);
-      next.engineerAssignments.push({ engineerId, routeId });
+      next.engineerAssignments.push({ engineerId, routeId, start_date: today, due_date: today });
 
       if (prevRouteId) changedRouteIds.add(prevRouteId);
       changedRouteIds.add(routeId);
@@ -1964,9 +2178,7 @@ export function computeDpr(state, user, { dateIso }) {
     const regionCompletedTasks = regionTasks.filter((t) => t.status === Statuses.COMPLETED).length;
     const regionExceptions = computeExceptions(regionTasks);
     const regionRouteOverall = computeOverallRouteCompletion(regionRoutes);
-    const regionCompletedRoutes = regionRoutes.filter((rt) =>
-      computeRouteCompletionCriteriaForRoute(rt, tasksToday).isCompleted
-    ).length;
+    const regionCompletedRoutes = regionRoutes.filter((rt) => computeRouteCompletionCriteriaForRoute(rt, tasksToday).isCompleted).length;
 
     return {
       regionId: r.id,

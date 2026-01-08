@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Roles } from "../data/demoData";
-import { computeDprSnapshot, computeRouteCompletionSummary, selectTasksDueOnDate } from "../state/domainStore";
+import {
+  computeDprSnapshot,
+  computeRouteCompletionSummary,
+  selectAssignmentOutcomeCountsForToday,
+  selectTasksForAssignments,
+} from "../state/domainStore";
 import {
   ComplianceSeverity,
   ensureComplianceComputed,
@@ -140,19 +145,23 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
     const rows = [
       {
         date: dprSnapshot.date,
-        planned_tasks: dprSnapshot.planned,
-        completed_tasks: dprSnapshot.completed,
+        planned_assignments: dprSnapshot.planned,
+        completed: dprSnapshot.completed,
         on_hold: dprSnapshot.onHold,
         postponed: dprSnapshot.postponed,
+        rejected: dprSnapshot.rejected || 0,
+        redo: dprSnapshot.redo || 0,
       },
     ];
 
     const csv = toCsv(rows, [
       { key: "date", label: "Date" },
-      { key: "planned_tasks", label: "Planned Tasks" },
-      { key: "completed_tasks", label: "Completed Tasks" },
-      { key: "on_hold", label: "On Hold" },
-      { key: "postponed", label: "Postponed" },
+      { key: "planned_assignments", label: "Planned Assignments (start_date OR due_date = today)" },
+      { key: "completed", label: "Completed (tasks in today-scoped assignments)" },
+      { key: "on_hold", label: "On Hold (tasks in today-scoped assignments)" },
+      { key: "postponed", label: "Postponed (tasks in today-scoped assignments)" },
+      { key: "rejected", label: "Rejected (tasks in today-scoped assignments)" },
+      { key: "redo", label: "Redo (tasks in today-scoped assignments)" },
     ]);
 
     downloadCsv({ filename: `dpr_snapshot_${dprSnapshot.date}.csv`, csvText: csv });
@@ -160,24 +169,46 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
   const routeCompletionDetails = useMemo(() => computeRouteCompletionSummary(scopedState, { dateIso: todayIso }), [scopedState, todayIso]);
 
-  const tasksToday = useMemo(() => selectTasksDueOnDate(scopedState, { dateIso: todayIso }), [scopedState, todayIso]);
+  // Dashboard “Assignments” drilldown MUST match the Assignments table “Today” filter:
+  // start_date OR due_date equals today (assignment-table-driven).
+  const assignmentTodayCounts = useMemo(
+    () => selectAssignmentOutcomeCountsForToday(scopedState, { dateIso: todayIso }),
+    [scopedState, todayIso]
+  );
+
+  const assignmentsTodayTasks = useMemo(() => {
+    const date = (todayIso || "").slice(0, 10);
+    const assignments = (scopedState?.engineerAssignments || []).filter((a) => {
+      const s = String(a?.start_date || "").slice(0, 10);
+      const d = String(a?.due_date || "").slice(0, 10);
+      return s === date || d === date;
+    });
+    return selectTasksForAssignments(scopedState, assignments);
+  }, [scopedState, todayIso]);
 
   const tasksDetails = useMemo(() => {
-    const completed = tasksToday.filter((t) => t.status === "completed").length;
-    const rejected = tasksToday.filter((t) => t.status === "rejected").length;
-    const redo = tasksToday.filter((t) => t.status === "redo").length;
-    const total = tasksToday.length;
-    const completionRate = total ? Math.round((completed / total) * 100) : 0;
+    const completed = assignmentsTodayTasks.filter((t) => t.status === "completed").length;
+    const rejected = assignmentsTodayTasks.filter((t) => t.status === "rejected").length;
+    const redo = assignmentsTodayTasks.filter((t) => t.status === "redo").length;
+    const onHold = assignmentsTodayTasks.filter((t) => t.status === "on_hold").length;
+    const postponed = assignmentsTodayTasks.filter((t) => t.status === "postponed").length;
+
+    const planned = Number(assignmentTodayCounts.plannedAssignments || 0);
+
+    // Completion rate for assignment-driven view is relative to planned assignments (table count),
+    // but completed is task-status count; in a real system these can differ.
+    // For a stable KPI UI, cap at 100%.
+    const completionRate = planned ? Math.min(100, Math.round((completed / planned) * 100)) : 0;
 
     // Quick lists (compact): show the most recent 8 exceptions (rejected/redo)
-    const exceptions = tasksToday
+    const exceptions = assignmentsTodayTasks
       .filter((t) => t.status === "rejected" || t.status === "redo")
       .slice()
       .reverse()
       .slice(0, 8);
 
-    return { total, completed, rejected, redo, completionRate, exceptions };
-  }, [tasksToday]);
+    return { planned, completed, rejected, redo, onHold, postponed, completionRate, exceptions };
+  }, [assignmentsTodayTasks, assignmentTodayCounts]);
 
   return (
     <div className="content">
@@ -268,26 +299,47 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           </div>
 
           <div className="kpiCardBody">
-            <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+            <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
               <div className="kpi">
                 <div className="kpiLabel">Planned assignments</div>
                 <div className="kpiValue">{dprSnapshot.planned}</div>
-                <div className="kpiSub">Due today</div>
+                <div className="kpiSub">Start date / due date = today</div>
               </div>
+
               <div className="kpi">
                 <div className="kpiLabel">Completed</div>
                 <div className="kpiValue">{dprSnapshot.completed}</div>
-                <div className="kpiSub">{pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion</div>
+                <div className="kpiSub">
+                  {pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion
+                </div>
               </div>
+
               <div className="kpi">
                 <div className="kpiLabel">On hold</div>
                 <div className="kpiValue">{dprSnapshot.onHold}</div>
                 <div className="kpiSub">Needs attention</div>
               </div>
+
               <div className="kpi">
                 <div className="kpiLabel">Postponed</div>
                 <div className="kpiValue">{dprSnapshot.postponed}</div>
                 <div className="kpiSub">Reschedule required</div>
+              </div>
+
+              <div className="kpi">
+                <div className="kpiLabel">Rejected</div>
+                <div className="kpiValue" style={{ color: "var(--ocean-error)" }}>
+                  {dprSnapshot.rejected || 0}
+                </div>
+                <div className="kpiSub">Needs review</div>
+              </div>
+
+              <div className="kpi">
+                <div className="kpiLabel">Redo</div>
+                <div className="kpiValue" style={{ color: "var(--ocean-secondary)" }}>
+                  {dprSnapshot.redo || 0}
+                </div>
+                <div className="kpiSub">Rework required</div>
               </div>
             </div>
           </div>
@@ -447,16 +499,26 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           </div>
         }
       >
-        <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+        <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
           <div className="kpi">
-            <div className="kpiLabel">Total</div>
-            <div className="kpiValue">{tasksDetails.total}</div>
-            <div className="kpiSub">Due today</div>
+            <div className="kpiLabel">Planned assignments</div>
+            <div className="kpiValue">{tasksDetails.planned}</div>
+            <div className="kpiSub">Start date / due date = today</div>
           </div>
           <div className="kpi">
             <div className="kpiLabel">Completed</div>
             <div className="kpiValue">{tasksDetails.completed}</div>
             <div className="kpiSub">{tasksDetails.completionRate}% completion</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">On hold</div>
+            <div className="kpiValue">{tasksDetails.onHold}</div>
+            <div className="kpiSub">Needs attention</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">Postponed</div>
+            <div className="kpiValue">{tasksDetails.postponed}</div>
+            <div className="kpiSub">Reschedule required</div>
           </div>
           <div className="kpi">
             <div className="kpiLabel">Rejected</div>

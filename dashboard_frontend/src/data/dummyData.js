@@ -107,8 +107,11 @@ export const engineerLiveLocations = [
   // West (Los Angeles)
   { engineerId: "u_eng_13", lat: 34.0526, lng: -118.2467 }, // DTLA
   { engineerId: "u_eng_14", lat: 34.0526, lng: -118.2467 }, // DTLA
-  { engineerId: "u_eng_15", lat: 34.0199, lng: -118.4915 }, // Santa Monica
-  { engineerId: "u_eng_16", lat: 34.0199, lng: -118.4915 }, // Santa Monica
+
+  // Intentionally idle/unallocated engineers (kept online so Allocation can show Idle vs Active dynamics)
+  // These engineers are NOT assigned in engineerAssignments, but still report a valid live location.
+  { engineerId: "u_eng_15", lat: 34.0199, lng: -118.4915 }, // Santa Monica (idle)
+  { engineerId: "u_eng_16", lat: 34.0332, lng: -118.4176 }, // West Hollywood-ish (idle)
 ];
 
 /**
@@ -147,7 +150,7 @@ export const routes = [
       { lat: 40.7282, lng: -73.9996 }, // SoHo (Prince St)
       { lat: 40.7155, lng: -74.0094 }, // City Hall Park
       { lat: 40.7099, lng: -74.0125 }, // WTC
-      { lat: 40.7033, lng: -74.0170 }, // Battery Park City
+      { lat: 40.7033, lng: -74.017 }, // Battery Park City
     ],
   },
 
@@ -174,7 +177,7 @@ export const routes = [
       { lat: 40.7062, lng: -74.0038 }, // near Brooklyn Bridge approach
       { lat: 40.7068, lng: -73.9969 }, // Brooklyn Bridge (approx)
       { lat: 40.7033, lng: -73.9895 }, // DUMBO
-      { lat: 40.7004, lng: -73.9870 }, // Brooklyn Bridge Park
+      { lat: 40.7004, lng: -73.987 }, // Brooklyn Bridge Park
     ],
   },
 
@@ -202,9 +205,9 @@ export const routes = [
     polyline: [
       { lat: 33.7538, lng: -84.3915 }, // Five Points
       { lat: 33.7707, lng: -84.3857 }, // Midtown / North Ave
-      { lat: 33.7890, lng: -84.3870 }, // Piedmont area edge
-      { lat: 33.7990, lng: -84.3872 }, // toward Buckhead
-      { lat: 33.8100, lng: -84.3875 }, // Buckhead-ish
+      { lat: 33.789, lng: -84.387 }, // Piedmont area edge
+      { lat: 33.799, lng: -84.3872 }, // toward Buckhead
+      { lat: 33.81, lng: -84.3875 }, // Buckhead-ish
     ],
   },
 
@@ -227,8 +230,8 @@ export const routes = [
     },
     polyline: [
       { lat: 33.7909, lng: -84.3879 }, // Midtown
-      { lat: 33.7897, lng: -84.3660 }, // toward Virginia-Highland edge
-      { lat: 33.7848, lng: -84.3420 }, // Avondale Estates-ish
+      { lat: 33.7897, lng: -84.366 }, // toward Virginia-Highland edge
+      { lat: 33.7848, lng: -84.342 }, // Avondale Estates-ish
       { lat: 33.7749, lng: -84.2963 }, // Decatur
     ],
   },
@@ -257,8 +260,8 @@ export const routes = [
     polyline: [
       { lat: 32.7767, lng: -96.797 }, // Downtown
       { lat: 32.7875, lng: -96.7978 }, // Victory Park-ish
-      { lat: 32.7960, lng: -96.7970 }, // Uptown-ish
-      { lat: 32.8046, lng: -96.7720 }, // Mockingbird / SMU edge
+      { lat: 32.796, lng: -96.797 }, // Uptown-ish
+      { lat: 32.8046, lng: -96.772 }, // Mockingbird / SMU edge
     ],
   },
 
@@ -281,8 +284,8 @@ export const routes = [
     },
     polyline: [
       { lat: 32.7507, lng: -96.8277 }, // Bishop Arts-ish
-      { lat: 32.7605, lng: -96.8080 }, // Reunion / river crossing area
-      { lat: 32.7767, lng: -96.7970 }, // Downtown
+      { lat: 32.7605, lng: -96.808 }, // Reunion / river crossing area
+      { lat: 32.7767, lng: -96.797 }, // Downtown
     ],
   },
 
@@ -310,7 +313,7 @@ export const routes = [
     polyline: [
       { lat: 34.0526, lng: -118.2467 }, // DTLA
       { lat: 34.0472, lng: -118.2741 }, // Koreatown
-      { lat: 34.0462, lng: -118.3190 }, // near La Brea
+      { lat: 34.0462, lng: -118.319 }, // near La Brea
       { lat: 34.0736, lng: -118.3617 }, // Beverly Grove edge
     ],
   },
@@ -334,37 +337,51 @@ export const routes = [
     },
     polyline: [
       { lat: 34.0199, lng: -118.4915 }, // Santa Monica
-      { lat: 34.0030, lng: -118.4418 }, // Sawtelle-ish edge
-      { lat: 33.9870, lng: -118.4350 }, // near Culver Blvd edge
-      { lat: 33.9803, lng: -118.3990 }, // Culver City
+      { lat: 34.003, lng: -118.4418 }, // Sawtelle-ish edge
+      { lat: 33.987, lng: -118.435 }, // near Culver Blvd edge
+      { lat: 33.9803, lng: -118.399 }, // Culver City
     ],
   },
 ];
 
+/**
+ * Assignments model (02.02):
+ * - engineerAssignments are *route allocations* for engineers.
+ * - Replace prior "next_due_date" usage with:
+ *    - start_date: when the assignment window begins (YYYY-MM-DD)
+ *    - due_date: when the assignment is due (YYYY-MM-DD)
+ *
+ * Notes:
+ * - These are day-level strings in the demo data (no time) for simpler selectors.
+ * - UI/metrics treat an assignment as "active on a day" if:
+ *      start_date <= day <= due_date
+ */
 export const engineerAssignments = [
   // Northeast engineers -> NE routes
-  { engineerId: "u_eng_1", routeId: "route_ne_1" },
-  { engineerId: "u_eng_2", routeId: "route_ne_1" },
-  { engineerId: "u_eng_3", routeId: "route_ne_2" },
-  { engineerId: "u_eng_4", routeId: "route_ne_2" },
+  // Seed several start_dates as "today" (2026-01-08) so today-scoped assignment metrics have meaningful volume.
+  { engineerId: "u_eng_1", routeId: "route_ne_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_2", routeId: "route_ne_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_3", routeId: "route_ne_2", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_4", routeId: "route_ne_2", start_date: "2026-01-08", due_date: "2026-01-10" },
 
   // Southeast engineers -> SE routes
-  { engineerId: "u_eng_5", routeId: "route_se_1" },
-  { engineerId: "u_eng_6", routeId: "route_se_1" },
-  { engineerId: "u_eng_7", routeId: "route_se_2" },
-  { engineerId: "u_eng_8", routeId: "route_se_2" },
+  { engineerId: "u_eng_5", routeId: "route_se_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_6", routeId: "route_se_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_7", routeId: "route_se_2", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_8", routeId: "route_se_2", start_date: "2026-01-08", due_date: "2026-01-10" },
 
   // Central engineers -> Central routes
-  { engineerId: "u_eng_9", routeId: "route_c_1" },
-  { engineerId: "u_eng_10", routeId: "route_c_1" },
-  { engineerId: "u_eng_11", routeId: "route_c_2" },
-  { engineerId: "u_eng_12", routeId: "route_c_2" },
+  { engineerId: "u_eng_9", routeId: "route_c_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_10", routeId: "route_c_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_11", routeId: "route_c_2", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_12", routeId: "route_c_2", start_date: "2026-01-08", due_date: "2026-01-10" },
 
   // West engineers -> West routes
-  { engineerId: "u_eng_13", routeId: "route_w_1" },
-  { engineerId: "u_eng_14", routeId: "route_w_1" },
-  { engineerId: "u_eng_15", routeId: "route_w_2" },
-  { engineerId: "u_eng_16", routeId: "route_w_2" },
+  { engineerId: "u_eng_13", routeId: "route_w_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+  { engineerId: "u_eng_14", routeId: "route_w_1", start_date: "2026-01-08", due_date: "2026-01-10" },
+
+  // NOTE: u_eng_15 and u_eng_16 are intentionally NOT assigned to any route in the seed,
+  // so they show as "Idle" (online/live location present, but no assignment).
 ];
 
 export const tasks = [

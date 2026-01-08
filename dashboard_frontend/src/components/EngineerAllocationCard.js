@@ -35,7 +35,7 @@ export default function EngineerAllocationCard({ scopedState, dateIso, onShowDet
       <div className="cardHeader">
         <div>
           <h2>Engineer Allocation</h2>
-          <p>Active vs inactive engineers (scope-aware)</p>
+          <p>Active vs idle engineers (real-time, scope-aware)</p>
         </div>
 
         <span className="badge" aria-label="Total engineers in current scope">
@@ -46,18 +46,19 @@ export default function EngineerAllocationCard({ scopedState, dateIso, onShowDet
       <div className="kpiCardBody">
         <div style={{ display: "grid", gap: 10 }}>
           <div style={rowStyle()}>
-            <div style={{ fontWeight: 900 }}>Active</div>
+            <div style={{ fontWeight: 900 }}>Active (assigned)</div>
             <div style={{ fontWeight: 950, fontSize: 18, color: "var(--ocean-success)" }}>{counts.activeCount}</div>
           </div>
 
           <div style={rowStyle()}>
-            <div style={{ fontWeight: 900 }}>Inactive</div>
-            <div style={{ fontWeight: 950, fontSize: 18, color: "var(--ocean-muted)" }}>{counts.inactiveCount}</div>
+            <div style={{ fontWeight: 900 }}>Idle (unassigned)</div>
+            <div style={{ fontWeight: 950, fontSize: 18, color: "var(--ocean-secondary)" }}>{counts.idleCount}</div>
           </div>
         </div>
 
         <div className="mini" style={{ marginTop: 10 }}>
-          Active is inferred from live location, assignments, or tasks due today; Inactive indicates none detected.
+          Active/Idle are derived from <strong>live location</strong> + <strong>route assignments</strong> on each refresh tick. Offline engineers are excluded from
+          both and counted separately in drill-down.
         </div>
       </div>
 

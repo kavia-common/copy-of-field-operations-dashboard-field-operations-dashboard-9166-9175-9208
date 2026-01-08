@@ -1,6 +1,11 @@
 import React, { useMemo, useState } from "react";
 import { Roles } from "../data/dummyData";
-import { assignRouteToEngineer, computeEngineerWorkload, unassignRouteFromEngineer } from "../state/domainStore";
+import {
+  assignRouteToEngineer,
+  computeEngineerWorkload,
+  selectEngineerAllocationCounts,
+  unassignRouteFromEngineer,
+} from "../state/domainStore";
 import { clampPageIndex, paginateRows, sortRows } from "../utils/tableTools";
 
 function regionName(state, regionId) {
@@ -33,6 +38,7 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
   /** Admin / Regional Manager view to allocate engineers to routes. */
   const [regionFilter, setRegionFilter] = useState("");
   const [managerFilter, setManagerFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all"); // all | active | idle | offline
   const [q, setQ] = useState("");
 
   const [sortKey, setSortKey] = useState("engineer");
@@ -47,6 +53,30 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
   const assignmentByEngineer = useMemo(
     () => new Map((fullState.engineerAssignments || []).map((a) => [a.engineerId, a.routeId])),
     [fullState.engineerAssignments]
+  );
+
+  // Derive live/assignment allocation status in real-time (updates as fullState changes via refresh loop).
+  const locationByEngineer = useMemo(
+    () => new Map((fullState.engineerLiveLocations || []).map((l) => [l.engineerId, l])),
+    [fullState.engineerLiveLocations]
+  );
+
+  const isValidLatLng = (lat, lng) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+    return true;
+  };
+
+  const allocationStatusForEngineer = (engineerId) => {
+    const loc = locationByEngineer.get(engineerId);
+    const online = !!loc && isValidLatLng(loc.lat, loc.lng);
+    if (!online) return "offline";
+    return assignmentByEngineer.get(engineerId) ? "active" : "idle";
+  };
+
+  const allocationCounts = useMemo(
+    () => selectEngineerAllocationCounts(scopedState, { dateIso: new Date().toISOString() }),
+    [scopedState]
   );
 
   const workloadByEngineer = useMemo(() => computeEngineerWorkload(fullState, { dateIso: new Date().toISOString() }), [fullState]);
@@ -65,6 +95,13 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
           const mgr = managers.find((m) => m.id === managerFilter);
           if (mgr?.regionId && u.regionId !== mgr.regionId) return false;
         }
+
+        // Status filter (derived from live location + assignment)
+        if (statusFilter && statusFilter !== "all") {
+          const st = allocationStatusForEngineer(u.id);
+          if (st !== statusFilter) return false;
+        }
+
         if (!qLower) return true;
         return (
           u.name.toLowerCase().includes(qLower) ||
@@ -72,14 +109,14 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
           regionName(fullState, u.regionId).toLowerCase().includes(qLower)
         );
       });
-  }, [scopedState, q, regionFilter, managerFilter, fullState, managers]);
+  }, [scopedState, q, regionFilter, managerFilter, statusFilter, fullState, managers, assignmentByEngineer, locationByEngineer]);
 
   const sortedEngineers = useMemo(() => {
     return sortRows(filteredEngineers, {
       sortKey,
       sortOrder,
       accessor: (e, key) => {
-        const routeId = assignmentByEngineer.get(e.id) || "";
+        const routeId = assignmentByEngineer.get(e.id)?.routeId || "";
         const wl = workloadByEngineer[e.id] || { tasksToday: 0, routesAssigned: 0, totalLoad: 0 };
         switch (key) {
           case "engineer":
@@ -174,7 +211,10 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
           <h2>Engineer Allocation</h2>
           {/* <p>Assign/unassign engineers to routes (persists to localStorage)</p> */}
         </div>
-        <span className="badge">Engineers: {pagination.totalRows}</span>
+        <span className="badge" aria-label="Engineer allocation counts">
+          Engineers: {pagination.totalRows} · Active: {allocationCounts.activeCount} · Idle: {allocationCounts.idleCount} · Offline:{" "}
+          {allocationCounts.inactiveCount}
+        </span>
       </div>
 
       <div className="filters" style={{ marginBottom: 12 }}>
@@ -188,6 +228,22 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
             }}
             placeholder="Engineer name or ID..."
           />
+        </label>
+
+        <label className="input">
+          <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Status</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPageIndex(0);
+            }}
+          >
+            <option value="all">All</option>
+            <option value="active">Active (assigned)</option>
+            <option value="idle">Idle (unassigned)</option>
+            <option value="offline">Offline</option>
+          </select>
         </label>
 
         <label className="input">
@@ -284,12 +340,13 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
       </div>
 
       <div className="tableWrap">
-        <table className="table" aria-label="Allocation table" style={{ minWidth: 860 }}>
+        <table className="table" aria-label="Allocation table" style={{ minWidth: 980 }}>
           <thead>
             <tr>
               <th>{headerButton("Engineer", "engineer")}</th>
               <th>{headerButton("Region", "region")}</th>
               <th>{headerButton("Current route", "route")}</th>
+              <th>Due date</th>
               <th>{headerButton("Workload", "workload")}</th>
               <th>Assign to route</th>
               <th>Actions</th>
@@ -297,12 +354,19 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
           </thead>
           <tbody>
             {pageEngineers.map((e) => {
-              const routeId = assignmentByEngineer.get(e.id) || "";
+              const assignment = assignmentByEngineer.get(e.id) || null;
+              const routeId = assignment?.routeId || "";
+              const dueDate = (assignment?.due_date || "").slice(0, 10);
+
               const wl = workloadByEngineer[e.id] || { tasksToday: 0, routesAssigned: 0, totalLoad: 0 };
               const warn = wl.totalLoad > workloadWarnThreshold;
 
               const status =
-                warn ? { label: "Overloaded", tone: "error" } : wl.totalLoad === 0 ? { label: "Idle", tone: "warn" } : { label: "Balanced", tone: "success" };
+                warn
+                  ? { label: "Overloaded", tone: "error" }
+                  : wl.totalLoad === 0
+                    ? { label: "Idle", tone: "warn" }
+                    : { label: "Balanced", tone: "success" };
 
               const regionRoutes = routesByRegion.get(e.regionId) || [];
 
@@ -314,6 +378,18 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
                   </td>
                   <td>{regionName(fullState, e.regionId)}</td>
                   <td>{routeId ? routeName(fullState, routeId) : <span className="mini">Unassigned</span>}</td>
+                  <td>
+                    <label className="input" style={{ minWidth: 170 }}>
+                      <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Due</span>
+                      <input
+                        type="date"
+                        value={dueDate}
+                        onChange={() => {}}
+                        disabled={!routeId}
+                        aria-label={`Due date for ${e.name}`}
+                      />
+                    </label>
+                  </td>
                   <td>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                       <span className={toneToBadgeClass(status.tone)}>{status.label}</span>
@@ -347,7 +423,7 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
             })}
             {pageEngineers.length === 0 && (
               <tr>
-                <td colSpan={6} className="mini">
+                <td colSpan={7} className="mini">
                   No engineers match your filters.
                 </td>
               </tr>
