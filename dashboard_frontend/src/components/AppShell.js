@@ -8,7 +8,7 @@ function navItemClass({ isActive }) {
   return `navItem ${isActive ? "navItemActive" : ""}`;
 }
 
-export default function AppShell({ currentUser, onLogout, children }) {
+export default function AppShell({ currentUser, onLogout, topBarControls, children }) {
   // Login is restricted to Admin / Regional Manager. Navigation should reflect manager experience.
   const canSeeAllocation = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
   const canSeeRoutesConfig = currentUser?.role === Roles.ADMIN || currentUser?.role === Roles.REGIONAL_MANAGER;
@@ -93,10 +93,20 @@ export default function AppShell({ currentUser, onLogout, children }) {
               <h1>Operations Dashboard</h1>
             </div>
 
-            <div className="userPill" aria-label="Current user">
-              <div className="userAvatar">{(currentUser?.name || "?").split(" ").map((p) => p[0]).slice(0, 2).join("")}</div>
-              <div className="userMeta">
-                <strong>{currentUser?.name}</strong>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} aria-label="Top bar controls">
+              {topBarControls || null}
+
+              <div className="userPill" aria-label="Current user">
+                <div className="userAvatar">
+                  {(currentUser?.name || "?")
+                    .split(" ")
+                    .map((p) => p[0])
+                    .slice(0, 2)
+                    .join("")}
+                </div>
+                <div className="userMeta">
+                  <strong>{currentUser?.name}</strong>
+                </div>
               </div>
             </div>
           </div>

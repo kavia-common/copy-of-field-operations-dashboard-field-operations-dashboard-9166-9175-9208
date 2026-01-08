@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Roles } from "../data/dummyData";
-import { computeAllocationSummary, computeDprSnapshot, computeRouteCompletionSummary, selectTasksDueOnDate } from "../state/domainStore";
+import { Roles } from "../data/demoData";
+import { computeDprSnapshot, computeRouteCompletionSummary, selectTasksDueOnDate } from "../state/domainStore";
 import {
   ComplianceSeverity,
   ensureComplianceComputed,
@@ -53,14 +53,10 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
   const todayIso = useMemo(() => new Date().toISOString(), []);
 
-  // Sample refresh controls
+  // Refresh controls (Demo Mode is always ON)
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [lastRefreshAt, setLastRefreshAt] = useState(() => getLastRefreshMeta()?.lastRefreshedAt || "");
 
-  const allocationSummary = useMemo(
-    () => computeAllocationSummary(fullState, scopedState, { dateIso: todayIso }),
-    [fullState, scopedState, todayIso]
-  );
   const dprSnapshot = useMemo(
     () => computeDprSnapshot(fullState, currentUser, { dateIso: todayIso }),
     [fullState, currentUser, todayIso]
@@ -89,7 +85,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
   const [nonComplianceFilterRoute, setNonComplianceFilterRoute] = useState("");
   const [nonComplianceSort, setNonComplianceSort] = useState("severity"); // severity | engineer | route | rule
 
-  // 30s refresh loop (simulated API polling)
+  // 30s refresh loop (Demo Mode is always ON)
   useEffect(() => {
     if (!autoRefreshEnabled) return undefined;
 
@@ -202,7 +198,6 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
       {/* Top: Legend (left) + Map (right) */}
       <div data-testid="dashboard-map">
         <div className="card" style={{ marginBottom: 12 }}>
-          {/* Map card header: remove splitRow usage ONLY here; keep equivalent responsive flex behavior inline. */}
           <div
             style={{
               display: "flex",
@@ -219,12 +214,13 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
                 <strong>{fmtTime(lastRefreshAt)}</strong>
               </div>
             </div>
+
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <button
                 className={autoRefreshEnabled ? "btn btnGhost" : "btn btnPrimary"}
                 style={miniButtonStyle()}
                 onClick={() => setAutoRefreshEnabled((v) => !v)}
-                aria-label="Toggle sample auto-refresh"
+                aria-label="Toggle auto-refresh"
               >
                 {autoRefreshEnabled ? "Pause auto-refresh" : "Resume auto-refresh"}
               </button>
@@ -248,11 +244,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
       <div className="dashboardMetricsGrid" data-testid="dashboard-metrics">
         {/* 1) Route Completion */}
         <section aria-label="Route completion summary" data-testid="metric-route-completion">
-          <RouteCompletionCard
-            scopedState={scopedState}
-            dateIso={todayIso}
-            onShowDetails={() => setActiveModal("route_details")}
-          />
+          <RouteCompletionCard scopedState={scopedState} dateIso={todayIso} onShowDetails={() => setActiveModal("route_details")} />
         </section>
 
         {/* 2) Assignments */}
@@ -262,11 +254,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
         {/* 3) Engineer Allocation */}
         <section aria-label="Engineer allocation metrics" data-testid="metric-allocation">
-          <EngineerAllocationCard
-            scopedState={scopedState}
-            dateIso={todayIso}
-            onShowDetails={() => setActiveModal("engineer_details")}
-          />
+          <EngineerAllocationCard scopedState={scopedState} dateIso={todayIso} onShowDetails={() => setActiveModal("engineer_details")} />
         </section>
 
         {/* 4) DPR Snapshot */}
@@ -289,9 +277,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
               <div className="kpi">
                 <div className="kpiLabel">Completed</div>
                 <div className="kpiValue">{dprSnapshot.completed}</div>
-                <div className="kpiSub">
-                  {pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion
-                </div>
+                <div className="kpiSub">{pct(dprSnapshot.planned ? (dprSnapshot.completed / dprSnapshot.planned) * 100 : 0)} completion</div>
               </div>
               <div className="kpi">
                 <div className="kpiLabel">On hold</div>
@@ -390,8 +376,6 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
             Focus highest
           </button>
         </div>
-
-
       </section>
 
       {/* Route Completion details modal */}
@@ -516,9 +500,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
                 return (
                   <tr key={t.id}>
                     <td>
-                      <span className={t.status === "rejected" ? "badge badgeError" : "badge badgeWarn"}>
-                        {String(t.status).toUpperCase()}
-                      </span>
+                      <span className={t.status === "rejected" ? "badge badgeError" : "badge badgeWarn"}>{String(t.status).toUpperCase()}</span>
                     </td>
                     <td style={{ fontWeight: 800 }}>{t.title}</td>
                     <td>{engineer?.name || t.engineerId}</td>
@@ -696,20 +678,12 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
           <label className="input">
             <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Engineer</span>
-            <input
-              value={nonComplianceFilterEngineer}
-              onChange={(e) => setNonComplianceFilterEngineer(e.target.value)}
-              placeholder="Search name or ID"
-            />
+            <input value={nonComplianceFilterEngineer} onChange={(e) => setNonComplianceFilterEngineer(e.target.value)} placeholder="Search name or ID" />
           </label>
 
           <label className="input">
             <span style={{ fontWeight: 800, fontSize: 12, color: "var(--ocean-muted)" }}>Route</span>
-            <input
-              value={nonComplianceFilterRoute}
-              onChange={(e) => setNonComplianceFilterRoute(e.target.value)}
-              placeholder="Search route name or ID"
-            />
+            <input value={nonComplianceFilterRoute} onChange={(e) => setNonComplianceFilterRoute(e.target.value)} placeholder="Search route name or ID" />
           </label>
 
           <label className="input">
@@ -812,9 +786,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         </div>
 
         <hr className="hr" />
-        <div className="mini">
-          Tip: new deviations trigger popups automatically; this table provides management oversight with filtering/sorting and map drill-down.
-        </div>
+        <div className="mini">Tip: new deviations trigger popups automatically; this table provides management oversight with filtering/sorting and map drill-down.</div>
       </Modal>
     </div>
   );

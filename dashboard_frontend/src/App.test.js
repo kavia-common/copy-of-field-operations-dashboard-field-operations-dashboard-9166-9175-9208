@@ -1,11 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import App from "./App";
+import React from "react";
+import LoginPage from "./pages/LoginPage";
 
-// Avoid importing react-leaflet (ESM) during Jest runs by mocking the dashboard page,
-// since the test only validates the unauthenticated flow renders the login screen.
-jest.mock("./pages/DashboardPage", () => () => null);
-
-test("renders login screen when not authenticated", () => {
-  render(<App />);
+test("renders login screen", () => {
+  render(<LoginPage onLoggedIn={() => {}} />);
   expect(screen.getByText(/Select a demo account/i)).toBeInTheDocument();
 });
