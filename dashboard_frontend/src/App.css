@@ -762,7 +762,9 @@ a.linkPrimary:active {
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
   gap: 14px;
-  align-items: start;
+
+  /* Critical: make legend card match map card height (same row) */
+  align-items: stretch;
   min-width: 0;
 }
 
@@ -775,16 +777,52 @@ a.linkPrimary:active {
 @media (max-width: 900px) {
   .dashboardMapRow {
     grid-template-columns: 1fr;
+    align-items: start; /* stacked layout; natural height */
   }
+}
+
+/* Ensure the MapPanel outer card stretches to the row height, not just its content */
+.dashboardMapRow > .card {
+  height: 100%;
+  align-self: stretch;
+  min-height: 0;
 }
 
 /* Legend card */
 .legendCard {
   position: relative;
   z-index: 1; /* below toasts/modals, above page background; doesn't interact with Leaflet panes */
+
+  /* Match map card height and create an internal scroll region */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden; /* keep the scroll region clean inside rounded card */
 }
 
+/* Sticky header prevents overlap/clipping; body scrolls underneath */
+.legendCard .cardHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+
+  /* Match card background so the body content never bleeds through while scrolling */
+  background: var(--ocean-surface);
+
+  /* Add padding below header to ensure first legend row is never clipped */
+  padding-bottom: 10px;
+  margin-bottom: 0 !important;
+
+  /* Visual separation when scrolling */
+  border-bottom: 1px solid var(--ocean-border);
+}
+
+/* Scrollable legend contents */
 .legendBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 10px; /* additional spacing after header */
   display: grid;
   gap: 0;
 }

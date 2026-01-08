@@ -31,7 +31,7 @@ import "leaflet.fullscreen";
  *        - optional corridor visualization along planned route (thick translucent stroke)
  *        - off-route segments are highlighted in red as part of the actual trail
  *        - engineer marker tooltip shows deviation meters and “since” timestamp.
- * - Engineer “moving marker” is the last live point (from dummy live locations / simulated trail).
+ * - Engineer “moving marker” is the last live point (from sample live locations / simulated trail).
  *
  * Compatibility constraints (must preserve prior behavior):
  * - Keep region selection and multi-route visibility behavior.
@@ -61,7 +61,7 @@ function toLatLngs(polyline = []) {
 }
 
 function toLonLatWaypointsFromRoutePolyline(routePolyline = []) {
-  // Route polylines in dummy data are [{lat,lng}, ...]
+  // Route polylines in the sample dataset are [{lat,lng}, ...]
   return (routePolyline || [])
     .filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng))
     .map((p) => [p.lng, p.lat]);
@@ -86,7 +86,7 @@ function getRegionName(scopedState, regionId) {
 }
 
 function getRegionalManagerName(scopedState, regionId) {
-  // In dummy data: Regional Manager users are keyed by regionId.
+  // In the sample dataset: Regional Manager users are keyed by regionId.
   const rm = (scopedState?.users || []).find((u) => u.role === "Regional Manager" && u.regionId === regionId);
   return rm?.name || rm?.id || "";
 }
@@ -724,11 +724,11 @@ function computeDeviationSegmentsFromTrail({ trailLatLngs, routeLine, thresholdM
 
 function buildSyntheticTrailForEngineer({ engineerId, currentLatLng, routeLatLngs }) {
   /**
-   * Build a deterministic “live GPS trail” from dummy data without needing backend feeds.
+   * Build a deterministic “live GPS trail” from sample data without needing backend feeds.
    * - If we have a route polyline, create a short trail around the route.
    * - Add a deterministic “deviation wiggle” for some engineers (stable by engineerId hash).
    *
-   * This keeps the UI fully functional with existing dummy data while matching UX spec.
+   * This keeps the UI fully functional with existing sample data while matching UX spec.
    */
   const base = [];
   const seed = String(engineerId || "").split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
@@ -1443,7 +1443,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   /**
    * Build per-engineer live trail + deviation stats for rendering.
    * Uses:
-   * - engineerLiveLocations (dummy current point)
+   * - engineerLiveLocations (current point)
    * - engineerAssignments → route
    * - route planned polyline (OSRM snapped if available) as reference geometry
    */

@@ -91,10 +91,10 @@ export function normalizeWaypoints(inputWaypoints) {
  * PUBLIC_INTERFACE
  * Normalizes a manager identifier from form input.
  *
- * In this dummy app, managers are users with role === "Regional Manager". We store:
+ * In this sample app, managers are users with role === "Regional Manager". We store:
  * - route.managerUserId: string | "" (optional)
  *
- * The UI may also provide a regionId (which implies a manager in dummy data), but we keep explicit manager id.
+ * The UI may also provide a regionId (which implies a manager in the sample dataset), but we keep explicit manager id.
  */
 export function normalizeManagerUserId(value) {
   /** Returns a trimmed manager userId, or empty string. */
@@ -121,7 +121,7 @@ function computeRouteCompletion(route) {
  *  - All tasks associated with that route are completed.
  *
  * IMPORTANT:
- * The dummy dataset does not currently provide explicit waypoint-visit events.
+ * The sample dataset does not currently provide explicit waypoint-visit events.
  * We therefore interpret "covered/visited" using the existing planned/completed
  * stop counters:
  *   - waypointsCovered is satisfied when completed_stops >= planned_stops
@@ -274,7 +274,7 @@ function getDefaultState() {
 
 // PUBLIC_INTERFACE
 export function loadDomainState() {
-  /** Loads domain state from localStorage (or initializes with default dummy data). */
+  /** Loads domain state from localStorage (or initializes with default sample data). */
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return getDefaultState();
@@ -315,7 +315,7 @@ export function saveDomainState(state) {
 
 // PUBLIC_INTERFACE
 export function resetDomainState() {
-  /** Resets domain state back to defaults (dummy data). */
+  /** Resets domain state back to defaults (sample data). */
   const next = getDefaultState();
   saveDomainState(next);
   return next;
@@ -428,7 +428,7 @@ export function computeRouteStatus(route) {
 // PUBLIC_INTERFACE
 export function computeEngineerWorkload(state, { dateIso = "" } = {}) {
   /**
-   * Computes workload per engineer. For the dummy app we define load as:
+   * Computes workload per engineer. For the sample app we define load as:
    * - number of tasks due on the given day (or all tasks if dateIso not provided)
    * - plus number of assigned routes (typically 1)
    */
@@ -867,7 +867,7 @@ function minutesBetweenIso(aIso, bIso) {
  * PUBLIC_INTERFACE
  * Computes dashboard "Engineer Allocation" metrics.
  *
- * Definitions (aligned to the request and dummy data model):
+ * Definitions (aligned to the request and sample data model):
  * - Total Engineers: count of Field Engineers in current scope.
  * - Allocated: engineers assigned to a route (via engineerAssignments).
  * - Active / On Duty:
@@ -901,10 +901,10 @@ export function computeEngineerAllocationSummary(
 
   const tasksToday = (scopedState?.tasks || []).filter((t) => (t.dueDate || "").slice(0, 10) === date);
 
-  // Active/on duty (best-effort, given dummy schema)
+  // Active/on duty (best-effort, given current schema)
   const onDutyEngineerIds = new Set();
   engineers.forEach((e) => {
-    // Prefer explicit flag if the dummy dataset introduces it later.
+    // Prefer explicit flag if the dataset introduces it later.
     const explicit =
       e.isOnDuty === true ||
       e.onDuty === true ||
@@ -936,7 +936,7 @@ export function computeEngineerAllocationSummary(
     if (!loc) return true;
     if (!isValidLatLng(loc.lat, loc.lng)) return true;
 
-    // lastUpdated isn't in current dummy schema; try common fields; fallback to not stale.
+    // lastUpdated isn't in current schema; try common fields; fallback to not stale.
     const ts = loc.lastUpdated || loc.updatedAt || loc.timestamp || "";
     if (!ts) return false;
 
@@ -1067,7 +1067,7 @@ export function selectEngineerAllocationCounts(scopedState, { dateIso = "" } = {
    *  - activeCount: on-duty/online engineers (best-effort)
    *  - inactiveCount: off-duty/offline engineers (best-effort)
    *
-   * Implementation notes (dummy data):
+   * Implementation notes (sample data):
    *  - If engineerLiveLocations has an entry for an engineer with valid lat/lng -> treat as "online".
    *  - If there is an explicit on-duty flag on the user record -> treat as active.
    *  - If assigned to a route OR has a task due on the selected date -> treat as active.
@@ -1667,7 +1667,7 @@ export function setEngineersForRoute(state, { routeId, engineerIds = [], mode = 
  * PUBLIC_INTERFACE
  * Creates a new route and (optionally) placeholder tasks.
  *
- * Route model (local dummy):
+ * Route model (local sample):
  * - id, name, regionId, managerUserId (optional), polyline [{lat,lng}]
  * - planned_stops, completed_stops, completion_percent (computed)
  *

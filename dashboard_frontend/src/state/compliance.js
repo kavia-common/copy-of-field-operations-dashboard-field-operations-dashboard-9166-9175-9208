@@ -2,7 +2,7 @@ import { saveDomainState } from "./domainStore";
 
 /**
  * Compliance / route deviation detection (client-only).
- * Driven entirely by dummy data and persisted to localStorage to provide a history trail.
+ * Driven entirely by local sample data and persisted to localStorage to provide a history trail.
  *
  * The data model is intentionally simple so it can be used across:
  * - Dashboard metric card + drill-down
@@ -37,7 +37,7 @@ export const DEFAULT_COMPLIANCE_CONFIG = Object.freeze({
   startWindowMinutes: 20,
   endWindowMinutes: 30,
 
-  // How many breadcrumbs we simulate per engineer per day (dummy GPS feed).
+  // How many breadcrumbs we simulate per engineer per day (simulated GPS feed).
   breadcrumbsPerDay: 18,
 
   // Deterministic time anchors for a "day" for simulation purposes (local-time-like strings).
@@ -79,14 +79,14 @@ function clamp(n, min, max) {
 }
 
 function hashStringToInt(str) {
-  // Simple deterministic hash for stable dummy simulation.
+  // Simple deterministic hash for stable simulation.
   let h = 0;
   for (let i = 0; i < str.length; i += 1) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return h;
 }
 
 function mulberry32(seed) {
-  // Deterministic PRNG (for repeatable dummy GPS)
+  // Deterministic PRNG (for repeatable simulated GPS)
   return function rand() {
     let t = (seed += 0x6d2b79f5);
     t = Math.imul(t ^ (t >>> 15), t | 1);
@@ -485,7 +485,7 @@ export function computeComplianceSnapshot(fullState, { dateIso = "", config = DE
   return {
     date: day,
     config: deepClone(config),
-    // Breadcrumbs included for map overlay/tooltip use (still dummy and deterministic).
+    // Breadcrumbs included for map overlay/tooltip use (simulated and deterministic).
     breadcrumbsByEngineer: Object.fromEntries(breadcrumbsByEngineer.entries()),
     flags,
     bySeverity,
@@ -805,7 +805,7 @@ export function selectNonComplianceTrendToday(complianceSnapshot, { now = new Da
   const total = flags.length;
 
   // Flags have no native time field; we use computedAt day anchors as approximation.
-  // This is deliberately lightweight for dummy data.
+  // This is deliberately lightweight for sample data.
   const nowMs = now.getTime();
   const oneHourAgo = nowMs - 60 * 60_000;
 

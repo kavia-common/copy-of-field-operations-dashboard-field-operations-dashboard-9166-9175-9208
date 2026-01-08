@@ -48,7 +48,7 @@ export default function LoginPage({ onLoggedIn }) {
 
           <h1>Role-based Dashboard</h1>
           <p>
-            This demo app uses <strong>dummy local JSON data</strong>. No backend calls. Login by selecting a demo account.
+            This demo app uses <strong>local sample JSON data</strong>. No backend calls. Login by selecting a demo account.
           </p>
 
           <div className="notice">

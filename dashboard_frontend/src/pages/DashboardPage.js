@@ -53,7 +53,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
 
   const todayIso = useMemo(() => new Date().toISOString(), []);
 
-  // Dummy refresh controls
+  // Sample refresh controls
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [lastRefreshAt, setLastRefreshAt] = useState(() => getLastRefreshMeta()?.lastRefreshedAt || "");
 
@@ -213,7 +213,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
             }}
           >
             <div>
-              <div style={{ fontWeight: 900 }}>Live dummy feed</div>
+              <div style={{ fontWeight: 900 }}>Live sample feed</div>
               <div className="mini">
                 Auto-refresh: <strong>{autoRefreshEnabled ? "ON" : "PAUSED"}</strong> · Last refresh:{" "}
                 <strong>{fmtTime(lastRefreshAt)}</strong>
@@ -224,7 +224,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
                 className={autoRefreshEnabled ? "btn btnGhost" : "btn btnPrimary"}
                 style={miniButtonStyle()}
                 onClick={() => setAutoRefreshEnabled((v) => !v)}
-                aria-label="Toggle dummy auto-refresh"
+                aria-label="Toggle sample auto-refresh"
               >
                 {autoRefreshEnabled ? "Pause auto-refresh" : "Resume auto-refresh"}
               </button>
@@ -572,7 +572,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
       <Modal
         open={activeModal === "compliance"}
         title="Compliance Alerts"
-        description="Automated route deviation & non-compliance flags (dummy GPS breadcrumbs)."
+        description="Automated route deviation & non-compliance flags (simulated GPS breadcrumbs)."
         onClose={() => setActiveModal("")}
         maxWidth={1250}
         footer={

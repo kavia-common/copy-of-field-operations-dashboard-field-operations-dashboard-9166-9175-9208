@@ -43,7 +43,7 @@ export function loadSession() {
 
 // PUBLIC_INTERFACE
 export function loginAsUserId(userId) {
-  /** Logs in by selecting a user from the dummy user list. */
+  /** Logs in by selecting a user from the local sample user list. */
   const user = users.find((u) => u.id === userId);
   if (!user) return { ok: false, error: "Unknown user." };
 

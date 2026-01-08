@@ -13,7 +13,7 @@ import { saveDomainState } from "./domainStore";
  *    a short, deliberate off-route segment occurs at a known tick for some routes.
  *
  * IMPORTANT:
- * - This file is the seam where real API polling can later replace the dummy mutations.
+ * - This file is the seam where real API polling can later replace the simulated mutations.
  * - Keep updates reversible on refresh: state is persisted, ticks progress monotonically.
  */
 
@@ -128,7 +128,7 @@ function saveRefreshMeta(meta) {
 
 // PUBLIC_INTERFACE
 export function getLastRefreshMeta() {
-  /** Returns persisted meta about the dummy refresh engine (currently lastRefreshedAt + tick). */
+  /** Returns persisted meta about the refresh engine (currently lastRefreshedAt + tick). */
   return loadRefreshMeta();
 }
 
@@ -416,7 +416,7 @@ function computeNextDomainState(prevState) {
 // PUBLIC_INTERFACE
 export function runDummyRefreshOnce(fullState) {
   /**
-   * Runs a single dummy refresh tick:
+   * Runs a single refresh tick:
    * - returns { ok, state, refreshedAt, toastEvents }
    * - persists updated domain state to localStorage
    * - persists meta.lastRefreshedAt and meta.tick
@@ -431,6 +431,6 @@ export function runDummyRefreshOnce(fullState) {
     // saveRefreshMeta already ran inside computeNextDomainState; keep returned timestamp aligned.
     return { ok: true, state: next, refreshedAt, toastEvents };
   } catch (e) {
-    return { ok: false, error: e?.message || "Failed to refresh dummy data." };
+    return { ok: false, error: e?.message || "Failed to refresh sample data." };
   }
 }

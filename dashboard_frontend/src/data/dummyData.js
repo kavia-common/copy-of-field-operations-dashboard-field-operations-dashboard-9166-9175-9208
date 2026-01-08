@@ -1,5 +1,5 @@
 /**
- * Dummy domain data for the Field Operations Dashboard.
+ * Sample domain data for the Field Operations Dashboard.
  * All data is local-only (no backend calls).
  *
  * DEMO GOALS (2026-01):

@@ -42,7 +42,7 @@ function RequireRole({ user, allowRoles, children }) {
 function App() {
   /**
    * Main application entry: handles login, routing, role-based access control,
-   * and dummy-data state management (localStorage-backed).
+   * and local sample data state management (localStorage-backed).
    */
   const [currentUser, setCurrentUser] = useState(null);
   const [domainState, setDomainState] = useState(() => loadDomainState());
@@ -113,10 +113,10 @@ function App() {
                     <div className="cardHeader">
                       <div>
                         <h2>Data Controls</h2>
-                        <p>All data is local dummy JSON (stored in localStorage)</p>
+                        <p>All data is local sample JSON (stored in localStorage)</p>
                       </div>
                       <button className="btn btnGhost" onClick={handleResetData}>
-                        Reset dummy data
+                        Reset sample data
                       </button>
                     </div>
                     <div className="mini">

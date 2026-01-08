@@ -21,7 +21,7 @@ function getManagerName(scopedState, managerUserId, regionId) {
     const u = (scopedState?.users || []).find((x) => x.id === managerUserId);
     if (u) return u.name;
   }
-  // Fallback: infer by region (dummy model)
+  // Fallback: infer by region (sample model)
   const rm = (scopedState?.users || []).find((u) => u.role === Roles.REGIONAL_MANAGER && u.regionId === regionId);
   return rm?.name || "";
 }

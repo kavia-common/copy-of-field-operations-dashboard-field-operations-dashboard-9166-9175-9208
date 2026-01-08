@@ -201,7 +201,7 @@ export default function RouteEditorModal({
               ))}
             </select>
             <div className="mini" style={{ marginTop: 6, color: "var(--ocean-muted)" }}>
-              Regional Managers are inferred by region in dummy data, but this field is kept for configuration clarity.
+              Regional Managers are inferred by region in the sample dataset, but this field is kept for configuration clarity.
             </div>
           </label>
         </div>
