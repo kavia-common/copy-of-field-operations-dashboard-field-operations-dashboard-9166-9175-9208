@@ -90,7 +90,7 @@ export default function AppShell({ currentUser, onLogout, children }) {
         <div className="topBar">
           <div className="topBarInner">
             <div className="pageTitle">
-              <h1>Field Operations Dashboard</h1>
+              <h1>Operations Dashboard</h1>
             </div>
 
             <div className="userPill" aria-label="Current user">

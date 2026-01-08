@@ -136,6 +136,32 @@ function debounce(fn, waitMs) {
   };
 }
 
+function buildBoundsFromLatLngs(latLngs) {
+  if (!Array.isArray(latLngs)) return null;
+  const pts = latLngs
+    .filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    .map((p) => L.latLng(p[0], p[1]));
+  if (pts.length === 0) return null;
+  try {
+    return L.latLngBounds(pts);
+  } catch {
+    return null;
+  }
+}
+
+function mergeBounds(a, b) {
+  if (!a && !b) return null;
+  if (a && !b) return a;
+  if (!a && b) return b;
+  try {
+    const next = L.latLngBounds(a);
+    next.extend(b);
+    return next;
+  } catch {
+    return a || b || null;
+  }
+}
+
 /**
  * Returns a zoom-aware stroke weight, but never below the requested min.
  * This prevents lines from becoming hairlines when zoomed out (visibility issue).
@@ -487,6 +513,36 @@ function safeFitToBounds(map, bounds) {
   } catch {
     // no-op
   }
+}
+
+// PUBLIC_INTERFACE
+function FitToRouteAfterModalClose({ active, bounds, padding = [40, 40] }) {
+  /** Fit the map to provided bounds once `active` becomes true. Designed for post-modal-close recentering. */
+  const map = useMap();
+
+  React.useEffect(() => {
+    if (!active) return;
+    if (!bounds) return;
+
+    // Debounce and run after overlay removal to avoid invalidateSize/layout race conditions.
+    // We also invalidateSize right before fitting to ensure Leaflet recalculates container metrics.
+    const t = window.setTimeout(() => {
+      try {
+        map.invalidateSize({ pan: false });
+      } catch {
+        // no-op
+      }
+      try {
+        map.fitBounds(bounds, { padding });
+      } catch {
+        // no-op
+      }
+    }, 220);
+
+    return () => window.clearTimeout(t);
+  }, [active, bounds, map, padding]);
+
+  return null;
 }
 
 function createOceanControlButton({ title, label, icon, onClick, extraClassName = "" }) {
@@ -1195,6 +1251,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   const [mapZoom, setMapZoom] = React.useState(12);
   const mapBoxRef = React.useRef(null);
 
+  // Keep a stable reference to the Leaflet map instance for imperative actions (fitBounds on modal close).
+  const mapInstanceRef = React.useRef(null);
+
   // Mandatory region selection (defaults to first region in scope).
   const [selectedRegionId, setSelectedRegionId] = React.useState("");
 
@@ -1216,11 +1275,64 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
   // Whether the route details modal is open (used to obscure the map without unmounting it).
   const isRouteDetailsModalOpen = Boolean(routeDetailsModalRouteId);
 
+  /**
+   * When the modal closes, we want to re-fit the map to the selected route.
+   * We track a one-shot token so the fit happens only once per close event.
+   */
+  const [routeRecenterToken, setRouteRecenterToken] = React.useState(0);
+  const prevModalOpenRef = React.useRef(false);
+
   // Layer toggles (per spec guidance; default to showing everything).
   const [showPlannedRoutes, setShowPlannedRoutes] = React.useState(true);
   const [showLiveTrails, setShowLiveTrails] = React.useState(true);
   const [showDeviations, setShowDeviations] = React.useState(true);
   const [showDeviationCorridor, setShowDeviationCorridor] = React.useState(false);
+
+  /**
+   * Leaflet can emit multiple click events when layers overlap (e.g., actual polyline over planned underlay).
+   * We guard against double-opens by throttling route-open handling briefly.
+   */
+  const lastRouteOpenAtRef = React.useRef(0);
+
+  // PUBLIC_INTERFACE
+  const openRouteDetailsForRouteId = React.useCallback(
+    (routeId) => {
+      /** Opens the route details modal for a given route ID (no-op if invalid). */
+      const rid = String(routeId || "");
+      if (!rid) return;
+
+      const now = Date.now();
+      // Ignore rapid duplicate events (overlapping layers / synthetic multiple click propagation).
+      if (now - lastRouteOpenAtRef.current < 220) return;
+      lastRouteOpenAtRef.current = now;
+
+      onSelectRouteId?.(rid);
+      setRouteDetailsModalRouteId(rid);
+      // Preserve existing behavior: don't force isolate on click.
+    },
+    [onSelectRouteId]
+  );
+
+  const makePolylineClickHandlers = React.useCallback(
+    (routeId) => {
+      /**
+       * react-leaflet expects Leaflet eventHandlers map. We stop propagation to reduce
+       * the chance of a second overlapped polyline also firing, while still keeping
+       * a time-based safeguard as a backstop.
+       */
+      return {
+        click: (e) => {
+          try {
+            e?.originalEvent?.stopPropagation?.();
+          } catch {
+            // no-op
+          }
+          openRouteDetailsForRouteId(routeId);
+        },
+      };
+    },
+    [openRouteDetailsForRouteId]
+  );
 
   // Deviation settings (TrackoBit-like): default 50m, but each route may override via `allowedDeviationMeters`.
   const DEFAULT_ALLOWED_DEVIATION_METERS = 50;
@@ -1440,6 +1552,17 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     if (!stillExists) setRouteDetailsModalRouteId("");
   }, [routesInRegion, routeDetailsModalRouteId]);
 
+  // Trigger a one-shot recenter token when the modal transitions from open -> closed.
+  React.useEffect(() => {
+    const wasOpen = prevModalOpenRef.current;
+    const isOpen = isRouteDetailsModalOpen;
+    prevModalOpenRef.current = isOpen;
+
+    if (wasOpen && !isOpen) {
+      setRouteRecenterToken((x) => x + 1);
+    }
+  }, [isRouteDetailsModalOpen]);
+
   /**
    * Build per-engineer live trail + deviation stats for rendering.
    * Uses:
@@ -1560,6 +1683,47 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
     if (!hasAnyGeo) return null;
     return L.latLngBounds(latLngsForBounds);
   }, [hasAnyGeo, latLngsForBounds]);
+
+  const selectedRouteBounds = useMemo(() => {
+    if (!selectedRouteId) return null;
+
+    const route = (allRoutes || []).find((r) => r.id === selectedRouteId) || null;
+    if (!route) return null;
+
+    // Planned: prefer snapped if available.
+    const waypointMeta = routesWaypointMetaByRouteId.get(route.id);
+    const snapKey = waypointMeta?.key || "";
+    const snapped = snapKey ? snappedByKey?.[snapKey] || osrmCacheRef.current.get(snapKey) : null;
+
+    const rawPlannedPositions = toLatLngs(route.polyline);
+    const plannedPositions = snapped?.latLngs?.length >= 2 ? snapped.latLngs : rawPlannedPositions;
+
+    let b = buildBoundsFromLatLngs(plannedPositions);
+
+    // Include start + destination pins explicitly.
+    const start = rawPlannedPositions[0];
+    const dest = rawPlannedPositions[rawPlannedPositions.length - 1];
+    b = mergeBounds(b, buildBoundsFromLatLngs([start, dest]));
+
+    // Actual + deviations: include all engineer trails associated with this route.
+    const engineerIdsForRoute = selectEngineerIdsForRoute(scopedState, selectedRouteId) || [];
+    engineerIdsForRoute.forEach((eid) => {
+      const live = liveTrailsByEngineerId.get(eid);
+      if (!live) return;
+      if (live.routeId && live.routeId !== selectedRouteId) return;
+
+      b = mergeBounds(b, buildBoundsFromLatLngs(live.trailLatLngs || []));
+
+      // Include deviation segments too (already part of trail points, but explicit for completeness).
+      (live.segmentedTrail || [])
+        .filter((s) => s?.isDeviated)
+        .forEach((s) => {
+          b = mergeBounds(b, buildBoundsFromLatLngs(s.positions || []));
+        });
+    });
+
+    return b;
+  }, [selectedRouteId, allRoutes, routesWaypointMetaByRouteId, snappedByKey, scopedState, liveTrailsByEngineerId]);
 
   /**
    * Auto-center behavior (requested):
@@ -1906,6 +2070,9 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
               style={{ height: "100%", width: "100%" }}
               preferCanvas
               zoomControl
+              whenCreated={(map) => {
+                mapInstanceRef.current = map;
+              }}
             >
               <LeafletControlTheming />
               <LeafletInteractionToggle disabled={isRouteDetailsModalOpen} />
@@ -1919,6 +2086,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
               <InvalidateSizeOnMountAndResize triggerKey={bounds ? bounds.toBBoxString?.() || "bounds" : "no_bounds"} />
               {/* Auto-fit ONLY on region changes (snapshot). Controls still use live `bounds`. */}
               {regionAutoFitBounds && <FitToVisible bounds={regionAutoFitBounds} />}
+
+              {/* Post-modal-close recenter: fit to the selected route after the overlay is removed. */}
+              <FitToRouteAfterModalClose active={!isRouteDetailsModalOpen && routeRecenterToken > 0} bounds={selectedRouteBounds} padding={[60, 60]} />
+
               <TrackZoom onZoom={setMapZoom} />
               {bounds && <MapControls bounds={bounds} />}
 
@@ -1953,24 +2124,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                     return (
                       <React.Fragment key={`planned_${r.id}`}>
-                        {/* Underlay (drawn first) */}
-                        <Polyline
-                          positions={plannedPositions}
-                          pathOptions={plannedUnder}
-                          interactive={false}
-                        />
+                        {/* Underlay (drawn first) - ALSO clickable so clicks on overlaps still open the modal */}
+                        <Polyline positions={plannedPositions} pathOptions={plannedUnder} interactive eventHandlers={makePolylineClickHandlers(r.id)} />
                         {/* Visible dashed planned route (clickable) */}
-                        <Polyline
-                          positions={plannedPositions}
-                          pathOptions={plannedStyle}
-                          eventHandlers={{
-                            click: () => {
-                              onSelectRouteId?.(r.id);
-                              setRouteDetailsModalRouteId(r.id);
-                              // Don't force isolate on click; user can toggle isolate in modal.
-                            },
-                          }}
-                        >
+                        <Polyline positions={plannedPositions} pathOptions={plannedStyle} eventHandlers={makePolylineClickHandlers(r.id)}>
                           <Tooltip sticky direction="top" opacity={0.95}>
                             <div style={{ fontWeight: 900 }}>{r.name}</div>
                             <div className="mini">
@@ -2006,9 +2163,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           <Marker key={`start_${r.id}`} position={start} icon={startDivIcon} interactive>
                             <Tooltip direction="top" opacity={0.95}>
                               <div style={{ fontWeight: 900 }}>{r.name}</div>
-                              <div className="mini">
-                                Start marker
-                              </div>
+                              <div className="mini">Start marker</div>
                             </Tooltip>
                           </Marker>
                         ) : null}
@@ -2096,13 +2251,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
 
                     const out = [];
 
-                    // 1) Actual polyline (single, strong)
+                    // 1) Actual polyline (single, strong) - clickable to open parent route modal
                     out.push(
                       <Polyline
                         key={`actual_${engineerId}`}
                         positions={live.trailLatLngs}
                         pathOptions={{ ...actualRouteStyle({ zoom: mapZoom }), opacity: baseOpacity }}
-                        interactive={false}
+                        interactive
+                        eventHandlers={makePolylineClickHandlers(live.routeId)}
                       >
                         <Tooltip sticky direction="top" opacity={0.95}>
                           <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, engineerId)}</div>
@@ -2120,11 +2276,12 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           <div className="mini">
                             Route: <strong>{live.routeName || "Unassigned"}</strong>
                           </div>
+                          <div className="mini">Click for route details</div>
                         </Tooltip>
                       </Polyline>
                     );
 
-                    // 2) Deviations on top (halo + red stroke)
+                    // 2) Deviations on top (halo + red stroke) - clickable, mapped to parent routeId
                     if (showDeviations && deviationSegments.length > 0) {
                       deviationSegments.forEach((seg, idx) => {
                         const positions = seg.positions || [];
@@ -2133,7 +2290,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             key={`dev_halo_${engineerId}_${idx}`}
                             positions={positions}
                             pathOptions={{ ...deviationHaloStyle({ zoom: mapZoom }), opacity: Math.min(1, baseOpacity + 0.05) }}
-                            interactive={false}
+                            interactive
+                            eventHandlers={makePolylineClickHandlers(live.routeId)}
                           />
                         );
                         out.push(
@@ -2141,7 +2299,8 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             key={`dev_${engineerId}_${idx}`}
                             positions={positions}
                             pathOptions={{ ...deviationSegmentStyle({ zoom: mapZoom }), opacity: Math.min(1, baseOpacity + 0.06) }}
-                            interactive={false}
+                            interactive
+                            eventHandlers={makePolylineClickHandlers(live.routeId)}
                           />
                         );
                       });
@@ -2166,13 +2325,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                 // Engineer icon remains distinct; deviation is conveyed via tooltip and live trail color.
                 // (We intentionally keep the icon stable to avoid jittering DOM reflows.)
                 return (
-                  <Marker
-                    key={`eng_${engineerId}`}
-                    position={[loc.lat, loc.lng]}
-                    icon={engineerAvatarIcon}
-                    opacity={opacity}
-                    interactive
-                  >
+                  <Marker key={`eng_${engineerId}`} position={[loc.lat, loc.lng]} icon={engineerAvatarIcon} opacity={opacity} interactive>
                     <Tooltip direction="top" opacity={0.95}>
                       <div style={{ fontWeight: 900 }}>{getEngineerName(scopedState, engineerId)}</div>
                       <div className="mini">
@@ -2398,14 +2551,14 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                           ) : null}
 
                           <div className="mini" style={{ marginTop: 12, color: "var(--ocean-muted)" }}>
-                          Deviations are calculated from the actual GPS trail using a distance-to-planned threshold of{" "}
-                          <strong>
-                            {Number((routesInRegion || []).find((x) => x.id === routePopupDetails.routeId)?.allowedDeviationMeters ?? DEFAULT_ALLOWED_DEVIATION_METERS) ||
-                              DEFAULT_ALLOWED_DEVIATION_METERS}
-                            m
-                          </strong>
-                          .
-                        </div>
+                            Deviations are calculated from the actual GPS trail using a distance-to-planned threshold of{" "}
+                            <strong>
+                              {Number((routesInRegion || []).find((x) => x.id === routePopupDetails.routeId)?.allowedDeviationMeters ?? DEFAULT_ALLOWED_DEVIATION_METERS) ||
+                                DEFAULT_ALLOWED_DEVIATION_METERS}
+                              m
+                            </strong>
+                            .
+                          </div>
                         </>
                       ) : (
                         <div className="mini" style={{ marginTop: 10 }}>
@@ -2460,7 +2613,6 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
           </>
         )}
       </div>
-
     </div>
   );
 }
