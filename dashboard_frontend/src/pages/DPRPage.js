@@ -98,7 +98,7 @@ export default function DPRPage({ currentUser, fullState }) {
         <div className="cardHeader">
           <div>
             <h2>Daily Progress Report</h2>
-            <p>Role-scoped operational snapshot for a selected date</p>
+            {/* <p>Role-scoped operational snapshot for a selected date</p> */}
           </div>
           <span className="badge">{currentUser?.role}</span>
         </div>

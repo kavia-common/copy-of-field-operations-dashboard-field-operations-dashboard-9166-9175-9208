@@ -158,7 +158,7 @@ export default function RoutesConfigPage({ scopedState, fullState, setFullState,
         <div className="cardHeader">
           <div>
             <h2>Routes Configuration</h2>
-            <p>Create, edit, assign engineers, and manage route waypoints/tasks (localStorage-backed).</p>
+            {/* <p>Create, edit, assign engineers, and manage route waypoints/tasks (localStorage-backed).</p> */}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button className="btn btnGhost" onClick={() => setSearch("")} aria-label="Clear search">

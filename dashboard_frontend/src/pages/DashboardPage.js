@@ -213,7 +213,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
             }}
           >
             <div>
-              <div style={{ fontWeight: 900 }}>Live sample feed</div>
+              <div style={{ fontWeight: 900 }}>Live Tracker</div>
               <div className="mini">
                 Auto-refresh: <strong>{autoRefreshEnabled ? "ON" : "PAUSED"}</strong> · Last refresh:{" "}
                 <strong>{fmtTime(lastRefreshAt)}</strong>

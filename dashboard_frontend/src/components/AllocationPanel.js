@@ -172,7 +172,7 @@ export default function AllocationPanel({ scopedState, fullState, setFullState, 
       <div className="cardHeader">
         <div>
           <h2>Engineer Allocation</h2>
-          <p>Assign/unassign engineers to routes (persists to localStorage)</p>
+          {/* <p>Assign/unassign engineers to routes (persists to localStorage)</p> */}
         </div>
         <span className="badge">Engineers: {pagination.totalRows}</span>
       </div>

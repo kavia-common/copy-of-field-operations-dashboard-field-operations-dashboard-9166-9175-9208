@@ -57,7 +57,7 @@ export default function EngineerAllocationCard({ scopedState, dateIso, onShowDet
         </div>
 
         <div className="mini" style={{ marginTop: 10 }}>
-          Helper: Active is inferred from live location, assignments, or tasks due today; Inactive indicates none detected.
+          Active is inferred from live location, assignments, or tasks due today; Inactive indicates none detected.
         </div>
       </div>
 

@@ -136,7 +136,7 @@ export default function EngineersPage({ scopedState, currentUser, routeFilterId 
         <div className="cardHeader">
           <div>
             <h2>Engineers</h2>
-            <p>Roster with region + assigned route</p>
+            {/* <p>Roster with region + assigned route</p> */}
           </div>
           <span className="badge">{pagination.totalRows} visible</span>
         </div>

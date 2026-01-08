@@ -2236,7 +2236,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                       </div>
 
                       <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                        <label className="mini" style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
+                        {/* <label className="mini" style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
                           <input
                             type="checkbox"
                             checked={isolateRouteId === routePopupDetails.routeId}
@@ -2256,10 +2256,10 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                             }}
                           />
                           Isolate this route on map
-                        </label>
-                        <span className="mini" style={{ color: "var(--ocean-muted)" }}>
+                        </label> */}
+                        {/* <span className="mini" style={{ color: "var(--ocean-muted)" }}>
                           (Useful for demos)
-                        </span>
+                        </span> */}
                       </div>
                     </div>
 

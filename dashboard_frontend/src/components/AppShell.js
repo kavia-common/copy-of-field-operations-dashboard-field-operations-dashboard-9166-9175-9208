@@ -97,7 +97,6 @@ export default function AppShell({ currentUser, onLogout, children }) {
               <div className="userAvatar">{(currentUser?.name || "?").split(" ").map((p) => p[0]).slice(0, 2).join("")}</div>
               <div className="userMeta">
                 <strong>{currentUser?.name}</strong>
-                <span>{currentUser?.role}</span>
               </div>
             </div>
           </div>

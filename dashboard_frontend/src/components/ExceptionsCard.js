@@ -82,7 +82,7 @@ export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) 
         <hr className="hr" />
 
         <div className="mini">
-          Helper: totals reflect assignments <strong>due today</strong> within your current scope (role/region filtering applied).
+          Totals reflect assignments <strong>due today</strong>.
         </div>
       </div>
 

@@ -204,8 +204,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
 
   const roleNotice =
     currentUser.role === Roles.REGIONAL_MANAGER
-      ? "You can view assignments within your region. Statuses are read-only on this page."
-      : "You can view all assignments across regions. Statuses are read-only on this page.";
+      ? "You can view assignments within your regions."
+      : "You can view all assignments across regions.";
 
   function onHeaderSort(clickedKey) {
     setSortOrder((prevOrder) => nextSortOrder(sortKey, prevOrder, clickedKey));
@@ -235,7 +235,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
         <div className="cardHeader">
           <div>
             <h2>Assignments</h2>
-            <p>Filtering, per-role visibility, and status tracking</p>
+            {/* <p>Filtering, per-role visibility, and status tracking</p> */}
           </div>
           <span className="badge">{pagination.totalRows} visible</span>
         </div>
@@ -249,7 +249,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
           )}
         </div>
 
-        <div className="notice">{roleNotice}</div>
+        {/* <div className="notice">{roleNotice}</div> */}
 
         <div className="filters" style={{ marginBottom: 12, marginTop: 12 }}>
           <label className="input">
