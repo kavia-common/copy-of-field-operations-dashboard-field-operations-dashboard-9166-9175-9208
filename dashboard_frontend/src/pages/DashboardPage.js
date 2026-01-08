@@ -255,8 +255,8 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           />
         </section>
 
-        {/* 2) Tasks */}
-        <section aria-label="Tasks summary" data-testid="metric-tasks">
+        {/* 2) Assignments */}
+        <section aria-label="Assignments summary" data-testid="metric-tasks">
           <ExceptionsCard scopedState={scopedState} dateIso={todayIso} onShowDetails={() => setActiveModal("tasks_details")} />
         </section>
 
@@ -274,7 +274,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           <div className="cardHeader">
             <div>
               <h2>DPR Snapshot</h2>
-              <p>Today&apos;s task KPIs (scope-aware)</p>
+              <p>Today&apos;s assignment KPIs (scope-aware)</p>
             </div>
             <span className="badge">{dprSnapshot.date}</span>
           </div>
@@ -282,7 +282,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
           <div className="kpiCardBody">
             <div className="kpiGrid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
               <div className="kpi">
-                <div className="kpiLabel">Planned tasks</div>
+                <div className="kpiLabel">Planned assignments</div>
                 <div className="kpiValue">{dprSnapshot.planned}</div>
                 <div className="kpiSub">Due today</div>
               </div>
@@ -445,11 +445,11 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         <div className="mini">Overall completion is computed from stops completed vs planned (aggregated across routes).</div>
       </Modal>
 
-      {/* Tasks details modal */}
+      {/* Assignments details modal */}
       <Modal
         open={activeModal === "tasks_details"}
-        title="Tasks — Details"
-        description="Today’s task outcomes and recent exceptions."
+        title="Assignments — Details"
+        description="Today’s assignment outcomes and recent exceptions."
         onClose={() => setActiveModal("")}
         maxWidth={1100}
         footer={
@@ -458,7 +458,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
               Done
             </button>
             <button className="btn btnPrimary" onClick={() => navigate("/tasks")}>
-              Go to Tasks
+              Go to Assignments
             </button>
           </div>
         }
@@ -497,11 +497,11 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
         </div>
 
         <div className="tableWrap">
-          <table className="table" aria-label="Recent task exceptions table" style={{ minWidth: 980 }}>
+          <table className="table" aria-label="Recent assignment exceptions table" style={{ minWidth: 980 }}>
             <thead>
               <tr>
                 <th>Status</th>
-                <th>Task</th>
+                <th>Assignment</th>
                 <th>Engineer</th>
                 <th>Route</th>
                 <th>Reason</th>
@@ -581,7 +581,7 @@ export default function DashboardPage({ scopedState, fullState, setFullState, cu
               Done
             </button>
             <button className="btn btnPrimary" onClick={() => navigate("/tasks")}>
-              Go to Tasks
+              Go to Assignments
             </button>
           </div>
         }

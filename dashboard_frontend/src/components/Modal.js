@@ -5,9 +5,16 @@ import React, { useEffect } from "react";
  * Uses existing app CSS classes: modalOverlay, modal, modalHeader, modalBody, modalFooter.
  */
 
+/**
+ * NOTE: This component historically used `open` in some call sites and `isOpen` in others.
+ * To prevent regressions, we support both props:
+ * - `open` (preferred)
+ * - `isOpen` (back-compat)
+ */
 // PUBLIC_INTERFACE
 export default function Modal({
   open,
+  isOpen,
   title,
   description,
   onClose,
@@ -18,8 +25,10 @@ export default function Modal({
   ariaDescribedBy,
 }) {
   /** Accessible modal dialog. Closes on ESC and overlay click. */
+  const resolvedOpen = typeof open === "boolean" ? open : Boolean(isOpen);
+
   useEffect(() => {
-    if (!open) return undefined;
+    if (!resolvedOpen) return undefined;
 
     function onKeyDown(e) {
       if (e.key === "Escape") onClose?.();
@@ -27,9 +36,9 @@ export default function Modal({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  }, [resolvedOpen, onClose]);
 
-  if (!open) return null;
+  if (!resolvedOpen) return null;
 
   const ariaProps =
     ariaLabelledBy || ariaDescribedBy
@@ -51,8 +60,14 @@ export default function Modal({
             <h3>{title}</h3>
             {description ? <p>{description}</p> : null}
           </div>
-          <button className="btn btnGhost" onClick={onClose} aria-label="Close dialog">
-            Close
+          <button
+            type="button"
+            className="modalCloseIconBtn"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+          >
+            <span aria-hidden="true">×</span>
           </button>
         </div>
 

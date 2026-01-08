@@ -37,7 +37,7 @@ export default function AppShell({ currentUser, onLogout, children }) {
 
         <NavLink className={navItemClass} to="/tasks">
           <span className="navIcon">T</span>
-          Tasks
+          Assignments
         </NavLink>
 
         <NavLink className={navItemClass} to="/engineers">

@@ -279,11 +279,11 @@ export default function RoutesConfigPage({ scopedState, fullState, setFullState,
                           {" · "}
                           <strong>Waypoints:</strong> {totalWaypoints}
                           {" · "}
-                          <strong>Tasks:</strong> {totalTasks}
+                          <strong>Assignments:</strong> {totalTasks}
                         </div>
                         <div>
                           <strong>Strict completion:</strong> waypoints covered ={" "}
-                          <strong>{criteria?.waypointsCovered ? "yes" : "no"}</strong>, tasks completed ={" "}
+                          <strong>{criteria?.waypointsCovered ? "yes" : "no"}</strong>, assignments completed ={" "}
                           <strong>
                             {criteria?.completedTasks}/{criteria?.totalTasks}
                           </strong>

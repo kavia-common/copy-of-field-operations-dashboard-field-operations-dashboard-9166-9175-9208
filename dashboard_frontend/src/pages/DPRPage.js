@@ -63,7 +63,7 @@ export default function DPRPage({ currentUser, fullState }) {
       { key: "engineerId", label: "Engineer ID" },
       { key: "engineerName", label: "Engineer" },
       { key: "regionId", label: "Region ID" },
-      { key: "tasks", label: "Tasks" },
+      { key: "tasks", label: "Assignments" },
       { key: "completed", label: "Completed" },
       { key: "completionRate", label: "Completion %" },
       { key: "load", label: "Load" },
@@ -142,7 +142,7 @@ export default function DPRPage({ currentUser, fullState }) {
             <div className="kpiSub">Weighted by planned stops</div>
           </div>
           <div className="kpi">
-            <div className="kpiLabel">Tasks (date)</div>
+            <div className="kpiLabel">Assignments (date)</div>
             <div className="kpiValue">{dpr.kpis.totalTasks}</div>
             <div className="kpiSub">
               Completed {dpr.kpis.completedTasks} · {pct(dpr.kpis.totalTasks ? (dpr.kpis.completedTasks / dpr.kpis.totalTasks) * 100 : 0)}
@@ -225,7 +225,7 @@ export default function DPRPage({ currentUser, fullState }) {
           <div className="cardHeader">
             <div>
               <h2>Per-Region Breakdown</h2>
-              <p>Routes, tasks, and exceptions</p>
+              <p>Routes, assignments, and exceptions</p>
             </div>
             <span className="badge">{(dpr.perRegion || []).length} regions</span>
           </div>
@@ -237,8 +237,8 @@ export default function DPRPage({ currentUser, fullState }) {
                   <th>Region</th>
                   <th>Routes</th>
                   <th>Route completion</th>
-                  <th>Tasks</th>
-                  <th>Task completion</th>
+                  <th>Assignments</th>
+                  <th>Assignment completion</th>
                   <th>Exceptions</th>
                 </tr>
               </thead>
@@ -279,7 +279,7 @@ export default function DPRPage({ currentUser, fullState }) {
         <div className="cardHeader">
           <div>
             <h2>Engineer Performance</h2>
-            <p>Tasks due on selected date</p>
+            <p>Assignments due on selected date</p>
           </div>
           <span className="badge">{(dpr.engineerPerformance || []).length} engineers</span>
         </div>
@@ -290,7 +290,7 @@ export default function DPRPage({ currentUser, fullState }) {
               <tr>
                 <th>Engineer</th>
                 <th>Region</th>
-                <th>Tasks</th>
+                <th>Assignments</th>
                 <th>Completed</th>
                 <th>Completion</th>
                 <th>Load</th>
@@ -323,7 +323,7 @@ export default function DPRPage({ currentUser, fullState }) {
         <div className="cardHeader">
           <div>
             <h2>Exceptions (date)</h2>
-            <p>Rejected / Redo tasks due on selected date</p>
+            <p>Rejected / Redo assignments due on selected date</p>
           </div>
           <span className="badge">{(dpr.exceptions || []).length} exceptions</span>
         </div>
@@ -332,7 +332,7 @@ export default function DPRPage({ currentUser, fullState }) {
           <table className="table" aria-label="Exceptions table" style={{ minWidth: 980 }}>
             <thead>
               <tr>
-                <th>Task</th>
+                <th>Assignment</th>
                 <th>Status</th>
                 <th>Engineer</th>
                 <th>Region</th>

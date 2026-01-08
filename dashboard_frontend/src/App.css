@@ -558,15 +558,62 @@ a.linkPrimary:active {
   vertical-align: top;
 }
 
-.table th {
+/* Gradient header treatment (tables + modals)
+   - Uses requested brand gradient.
+   - Ensures contrast/readability with white text and subtle shadow.
+*/
+:root {
+  --ocean-header-gradient: linear-gradient(87deg, #c5168c, #034ea1);
+  --ocean-header-foreground: #ffffff;
+  --ocean-header-foreground-muted: rgba(255, 255, 255, 0.88);
+}
+
+.oceanGradientHeader {
+  background: var(--ocean-header-gradient);
+  color: var(--ocean-header-foreground);
+}
+
+/* Tables: apply gradient to the THEAD row wrapper (not individual TH cells).
+   Requirement:
+   - <th> must not have any background color/gradient applied.
+   - Modal header gradient remains unchanged (separate .modalHeader rule below).
+*/
+.table thead tr {
   position: sticky;
   top: 0;
-  background: rgba(243, 244, 246, 0.95);
   z-index: 1;
+
+  background: var(--ocean-header-gradient);
+}
+
+/* Header cells: keep transparent so the THEAD/TR background shows through. */
+.table thead th {
+  background: transparent;
+
   font-size: 12px;
-  color: var(--ocean-muted);
+  color: var(--ocean-header-foreground);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+
+  /* Helps white text remain readable across the gradient */
+  text-shadow: 0 1px 1px rgba(17, 24, 39, 0.25);
+}
+
+/* Explicitly keep table body cells on the neutral/surface background. */
+.table tbody td,
+.table tbody th {
+  background: var(--ocean-surface);
+  color: var(--ocean-text);
+}
+
+/* Sortable header buttons must inherit header foreground */
+.table th .tableHeaderBtn {
+  color: inherit;
+}
+
+/* Optional: make the ▲/▼ indicator slightly more visible */
+.table th .tableHeaderBtn span[aria-hidden="true"] {
+  opacity: 0.95;
 }
 
 .table tr:hover td {
@@ -872,23 +919,88 @@ a.linkPrimary:active {
   padding: 14px;
 }
 
+/* Modal header: gradient strip while preserving existing modal padding/layout */
 .modalHeader {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+
+  /* Pull header into a "strip" without changing the modal's outer sizing */
+  margin: -14px -14px 10px -14px;
+  padding: 12px 14px;
+
+  background: var(--ocean-header-gradient);
+  color: var(--ocean-header-foreground);
+  border-bottom: 1px solid rgba(17, 24, 39, 0.10);
+
+  /* match modal rounding at the top corners */
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+
+  text-shadow: 0 1px 1px rgba(17, 24, 39, 0.25);
 }
 
 .modalHeader h3 {
   margin: 0;
   font-size: 14px;
+  color: var(--ocean-header-foreground);
 }
 
 .modalHeader p {
   margin: 4px 0 0;
   font-size: 12px;
-  color: var(--ocean-muted);
+  color: var(--ocean-header-foreground-muted);
+}
+
+/* Modal close button should remain legible on the gradient */
+.modalHeader .btn,
+.modalHeader .btnGhost {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+.modalHeader .btn:hover,
+.modalHeader .btnGhost:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Icon-style close button for modal header (replaces text-based close button). */
+.modalCloseIconBtn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.modalCloseIconBtn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.modalCloseIconBtn:active {
+  transform: translateY(0.5px);
+}
+
+.modalCloseIconBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ocean-focus-ring), var(--shadow-sm);
+}
+
+.modalCloseIconBtn span[aria-hidden="true"] {
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  transform: translateY(-0.5px); /* optically centers the glyph */
 }
 
 .modalBody {

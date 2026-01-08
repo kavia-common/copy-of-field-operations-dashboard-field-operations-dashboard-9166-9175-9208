@@ -7,7 +7,7 @@ import { saveDomainState } from "./domainStore";
  * The data model is intentionally simple so it can be used across:
  * - Dashboard metric card + drill-down
  * - Map highlighting (route polyline + engineer marker)
- * - Exceptions / Tasks surfacing
+ * - Exceptions / Assignments surfacing
  *
  * Additions:
  * - A minimal “deviation event” emitter that can be used by UI to trigger popup/toast alerts.

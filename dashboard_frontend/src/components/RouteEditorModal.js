@@ -341,8 +341,8 @@ export default function RouteEditorModal({
             <div className="card" style={{ margin: 0 }}>
               <div className="cardHeader">
                 <div>
-                  <h2 style={{ fontSize: 14 }}>Tasks (optional)</h2>
-                  <p>Placeholder tasks for strict completion criteria.</p>
+                  <h2 style={{ fontSize: 14 }}>Assignments (optional)</h2>
+                  <p>Placeholder assignments for strict completion criteria.</p>
                 </div>
                 <button
                   className="btn btnGhost"
@@ -356,7 +356,7 @@ export default function RouteEditorModal({
               <div style={{ padding: "0 14px 14px 14px", display: "grid", gap: 10 }}>
                 {(taskRows || []).length === 0 ? (
                   <div className="mini" style={{ color: "var(--ocean-muted)" }}>
-                    No tasks on this route. (Strict completion treats “no tasks” as not complete.)
+                    No assignments on this route. (Strict completion treats “no assignments” as not complete.)
                   </div>
                 ) : null}
 
@@ -373,10 +373,10 @@ export default function RouteEditorModal({
                       borderRadius: 12,
                       background: "rgba(255,255,255,0.85)",
                     }}
-                    aria-label={`Task row ${idx + 1}`}
+                    aria-label={`Assignment row ${idx + 1}`}
                   >
                     <label className="mini" style={{ display: "grid", gap: 4 }}>
-                      <span>Task</span>
+                      <span>Assignment</span>
                       <input
                         className="input"
                         value={t.title}
@@ -388,7 +388,7 @@ export default function RouteEditorModal({
                           })
                         }
                         placeholder="e.g., Inspect hydrant"
-                        aria-label={`Task ${idx + 1} title`}
+                        aria-label={`Assignment ${idx + 1} title`}
                       />
                     </label>
 

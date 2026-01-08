@@ -107,9 +107,9 @@ function sortIndicator(active, order) {
 // PUBLIC_INTERFACE
 export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
   /**
-   * Tasks page:
+   * Assignments page:
    * - Status and comments are read-only (no update actions from this page).
-   * - No "Details" action/button in the task list.
+   * - No "Details" action/button in the assignment list.
    * - Engineer comments column remains visible and functional.
    *
    * Table enhancements:
@@ -204,8 +204,8 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
 
   const roleNotice =
     currentUser.role === Roles.REGIONAL_MANAGER
-      ? "You can view tasks within your region. Statuses are read-only on this page."
-      : "You can view all tasks across regions. Statuses are read-only on this page.";
+      ? "You can view assignments within your region. Statuses are read-only on this page."
+      : "You can view all assignments across regions. Statuses are read-only on this page.";
 
   function onHeaderSort(clickedKey) {
     setSortOrder((prevOrder) => nextSortOrder(sortKey, prevOrder, clickedKey));
@@ -234,7 +234,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
       <div className="card">
         <div className="cardHeader">
           <div>
-            <h2>Tasks</h2>
+            <h2>Assignments</h2>
             <p>Filtering, per-role visibility, and status tracking</p>
           </div>
           <span className="badge">{pagination.totalRows} visible</span>
@@ -260,7 +260,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                 setQ(e.target.value);
                 setPageIndex(0);
               }}
-              placeholder="Task, engineer, region, route..."
+              placeholder="Assignment, engineer, region, route..."
             />
           </label>
 
@@ -347,10 +347,10 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
         </div>
 
         <div className="tableWrap" style={{ marginTop: 12 }}>
-          <table className="table" aria-label="Task list">
+          <table className="table" aria-label="Assignment list">
             <thead>
               <tr>
-                <th>{headerButton("Task", "title")}</th>
+                <th>{headerButton("Assignment", "title")}</th>
                 <th>{headerButton("Engineer", "engineer")}</th>
                 <th>{headerButton("Region", "region")}</th>
                 <th>{headerButton("Route", "route")}</th>
@@ -372,7 +372,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                     key={t.id}
                     onClick={() => setSelectedTaskId(t.id)}
                     style={{ cursor: "pointer" }}
-                    aria-label={`Select task ${t.id}`}
+                    aria-label={`Select assignment ${t.id}`}
                   >
                     <td>
                       <div style={{ fontWeight: 900 }}>{t.title}</div>
@@ -415,14 +415,14 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
               {pageRows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="mini">
-                    No tasks match your filters.
+                    No assignments match your filters.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
           <div className="mini" style={{ marginTop: 8, color: "var(--ocean-muted)" }}>
-            Tip: click a task row to view details below.
+            Tip: click an assignment row to view details below.
           </div>
         </div>
 
@@ -431,7 +431,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
             <hr className="hr" />
             <div className="splitRow">
               <div>
-                <div style={{ fontWeight: 900 }}>Task Details</div>
+                <div style={{ fontWeight: 900 }}>Assignment Details</div>
                 <div className="mini">
                   {selectedTask.title} · {engineerName(scopedState, selectedTask.engineerId)} ·{" "}
                   {routeName(scopedState, selectedTask.routeId)}
@@ -497,7 +497,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                     {exceptionHistoryForSelected.length === 0 && (
                       <tr>
                         <td colSpan={4} className="mini">
-                          No exception history entries for this task.
+                          No exception history entries for this assignment.
                         </td>
                       </tr>
                     )}
@@ -539,7 +539,7 @@ export default function TasksPage({ scopedState, currentUser, routeFilterId }) {
                     {historyForSelected.length === 0 && (
                       <tr>
                         <td colSpan={4} className="mini">
-                          No history entries for this task yet.
+                          No history entries for this assignment yet.
                         </td>
                       </tr>
                     )}

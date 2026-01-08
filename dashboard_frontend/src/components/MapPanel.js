@@ -2325,7 +2325,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </div>
 
                         <div className="mini">
-                          Tasks completed:{" "}
+                          Assignments completed:{" "}
                           <strong>
                             {routePopupDetails.tasksCompleted}/{routePopupDetails.totalTasks}
                           </strong>
@@ -2336,7 +2336,7 @@ export default function MapPanel({ scopedState, selectedRouteId, onSelectRouteId
                         </div>
 
                         <div className="mini" style={{ marginTop: 2, color: "var(--ocean-muted)" }}>
-                          Strict completion requires <strong>all waypoints covered</strong> and <strong>all tasks completed</strong>.
+                          Strict completion requires <strong>all waypoints covered</strong> and <strong>all assignments completed</strong>.
                         </div>
                       </div>
                     </section>

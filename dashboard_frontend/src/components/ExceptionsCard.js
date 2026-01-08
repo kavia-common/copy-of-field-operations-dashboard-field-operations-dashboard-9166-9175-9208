@@ -22,7 +22,7 @@ function tasksTone({ rejected, redo }) {
 // PUBLIC_INTERFACE
 export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) {
   /**
-   * Dashboard "Tasks" KPI card (uniform-height).
+   * Dashboard "Assignments" KPI card (uniform-height).
    *
    * Required KPIs:
    *  - Completed
@@ -42,14 +42,14 @@ export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) 
   const completionRate = totalTasks ? (Number(counts.completed || 0) / totalTasks) * 100 : 0;
 
   return (
-    <div className="card kpiCardFixed" aria-label="Tasks KPI card">
+    <div className="card kpiCardFixed" aria-label="Assignments KPI card">
       <div className="cardHeader">
         <div>
-          <h2>Tasks</h2>
+          <h2>Assignments</h2>
           <p>Today&apos;s outcomes ({counts.date})</p>
         </div>
 
-        <span className={toneToBadgeClass(tone)} aria-label="Total tasks due today in current scope">
+        <span className={toneToBadgeClass(tone)} aria-label="Total assignments due today in current scope">
           Total: <strong>{totalTasks}</strong>
         </span>
       </div>
@@ -82,7 +82,7 @@ export default function ExceptionsCard({ scopedState, dateIso, onShowDetails }) 
         <hr className="hr" />
 
         <div className="mini">
-          Helper: totals reflect tasks <strong>due today</strong> within your current scope (role/region filtering applied).
+          Helper: totals reflect assignments <strong>due today</strong> within your current scope (role/region filtering applied).
         </div>
       </div>
 
